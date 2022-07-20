@@ -1,0 +1,632 @@
+/* ----------------------------------------------------------------------
+   LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
+   http://lammps.sandia.gov, Sandia National Laboratories
+   Steve Plimpton, sjplimp@sandia.gov
+
+   Copyright (2003) Sandia Corporation.  Under the terms of Contract
+   DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
+   certain rights in this software.  This software is distributed under
+   the GNU General Public License.
+
+   See the README file in the top-level LAMMPS directory.
+------------------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------------
+   Contributing author: Paul Crozier, Aidan Thompson (SNL)
+------------------------------------------------------------------------- */
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include "fix_gckmc.h"
+#include "atom.h"
+#include "atom_vec.h"
+#include "atom_vec_hybrid.h"
+#include "molecule.h"
+#include "update.h"
+#include "modify.h"
+#include "fix.h"
+#include "comm.h"
+#include "compute.h"
+#include "group.h"
+#include "domain.h"
+#include "region.h"
+#include "random_park.h"
+#include "force.h"
+#include "pair.h"
+#include "bond.h"
+#include "angle.h"
+#include "dihedral.h"
+#include "improper.h"
+#include "kspace.h"
+#include "math_extra.h"
+#include "math_const.h"
+#include "memory.h"
+#include "error.h"
+#include "thermo.h"
+#include "output.h"
+#include "neighbor.h"
+#include <iostream>
+
+using namespace std;
+using namespace LAMMPS_NS;
+using namespace FixConst;
+using namespace MathConst;
+
+enum{ATOM,MOLECULE};
+
+/* ---------------------------------------------------------------------- */
+
+FixGCkMC::FixGCkMC(LAMMPS *lmp, int narg, char **arg) :
+  Fix(lmp, narg, arg)
+{
+  if (narg < 11) error->all(FLERR,"Illegal fix gckmc command");
+
+  if (atom->molecular == 2)
+    error->all(FLERR,"Fix gckmc does not (yet) work with atom_style template");
+
+  dynamic_group_allow = 1;
+
+  vector_flag = 1;
+  size_vector = 4;
+  global_freq = 1;
+  extvector = 0;
+  restart_global = 1;
+  time_depend = 1;
+
+  // required args
+  reservoir_temperature = utils::numeric(FLERR,arg[3],false,lmp);
+  reactive_type = utils::inumeric(FLERR,arg[4],false,lmp);
+  product_type = utils::inumeric(FLERR,arg[5],false,lmp);
+  surf_type = utils::inumeric(FLERR,arg[6],false,lmp);
+  preexp = utils::numeric(FLERR,arg[7],false,lmp);
+  potential = utils::numeric(FLERR,arg[8],false,lmp);
+  seed = utils::inumeric(FLERR,arg[9],false,lmp);
+  nevery = utils::inumeric(FLERR,arg[10],false,lmp);
+
+  if (seed <= 0) error->all(FLERR,"Illegal fix gckmc command");
+  if (reservoir_temperature < 0.0)
+    error->all(FLERR,"Illegal fix gckmc command");
+
+    regionflag=0;   // added by Jibao. from Matias
+
+  // read options from end of input line
+
+  options(narg-11,&arg[11]);
+
+  // random number generator, same for all procs
+
+  random_equal = new RanPark(lmp,seed);
+
+  // random number generator, not the same for all procs
+
+  random_unequal = new RanPark(lmp,seed);
+
+  // error checks on region and its extent being inside simulation box
+
+  region_xlo = region_xhi = region_ylo = region_yhi =
+    region_zlo = region_zhi = 0.0;
+  if (regionflag) {
+    if (iregion->bboxflag == 0)
+      error->all(FLERR,"Fix gckmc region does not support a bounding box");
+    if (iregion->dynamic_check())
+      error->all(FLERR,"Fix gckmc region cannot be dynamic");
+
+    region_xlo = iregion->extent_xlo;
+    region_xhi = iregion->extent_xhi;
+    region_ylo = iregion->extent_ylo;
+    region_yhi = iregion->extent_yhi;
+    region_zlo = iregion->extent_zlo;
+    region_zhi = iregion->extent_zhi;
+
+    if (region_xlo < domain->boxlo[0] || region_xhi > domain->boxhi[0] ||
+        region_ylo < domain->boxlo[1] || region_yhi > domain->boxhi[1] ||
+        region_zlo < domain->boxlo[2] || region_zhi > domain->boxhi[2])
+      error->all(FLERR,"Fix gckmc region extends outside simulation box");
+
+  }
+
+  if (mode == ATOM) natoms_per_molecule = 1;
+  else error->all(FLERR,"Fix gckmc region does not support molecules");
+
+  force_reneighbor = 1;
+  next_reneighbor = update->ntimestep+1;
+
+  // zero out counters
+  nfreaction_attempts = 0.0;
+  nfreaction_successes = 0.0;
+  nbreaction_attempts = 0.0;
+  nbreaction_successes = 0.0;
+
+  gcmc_nmax = 0;
+  local_gas_list = NULL;
+  local_react_list = NULL;
+  local_prod_list = NULL;
+  local_surf_list = NULL;
+
+}
+
+/* ----------------------------------------------------------------------
+   parse optional parameters at end of input line
+------------------------------------------------------------------------- */
+
+void FixGCkMC::options(int narg, char **arg)
+{
+  if (narg < 0) error->all(FLERR,"Illegal fix gckmc command");
+
+  // defaults
+
+  mode = ATOM;
+  regionflag = 0;
+  iregion = nullptr;
+
+
+  int iarg = 0;
+  while (iarg < narg) {
+  if (strcmp(arg[iarg],"mol") == 0) {
+      error->all(FLERR,"gckmc does not work with molecules! (yet)");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"region") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix gckmc command");
+      iregion = domain->get_region_by_id(arg[iarg+1]);
+      if (iregion == nullptr)
+        error->all(FLERR,"Region ID for fix gckmc does not exist");
+      int n = strlen(arg[iarg+1]) + 1;
+      idregion = new char[n];
+      strcpy(idregion,arg[iarg+1]);
+      regionflag = 1;
+      iarg += 2;
+    } else error->all(FLERR,"Illegal fix gckmc command");
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+FixGCkMC::~FixGCkMC()
+{
+  if (regionflag) delete [] idregion;
+  delete random_equal;
+  delete random_unequal;
+
+  memory->destroy(local_gas_list);
+  memory->destroy(local_react_list);
+  memory->destroy(local_prod_list);
+  memory->destroy(local_surf_list);
+  memory->destroy(atom_coord);
+  memory->destroy(coords);
+  memory->destroy(imageflags);
+
+
+   // if (comm->me == 0) printf("End of FixGCkMC::~FixGCkMC()\n");
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixGCkMC::setmask()
+{
+  int mask = 0;
+  mask |= PRE_EXCHANGE;
+  return mask;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+void FixGCkMC::init()
+{
+  triclinic = domain->triclinic;
+    //if (comm->me == 0) printf("Begins 2: FixGCkMC::init()\n");
+
+  int *type = atom->type;
+  if (mode == ATOM) {
+    if (product_type <= 0 || product_type > atom->ntypes)
+      error->all(FLERR,"Invalid atom type in fix gckmc command");
+    if (reactive_type <= 0 || reactive_type > atom->ntypes)
+      error->all(FLERR,"Invalid atom type in fix gckmc command");
+  }
+
+  if (domain->dimension == 2)
+    error->all(FLERR,"Cannot use fix gckmc in a 2d simulation");
+
+  // create a new group for interaction exclusions
+
+    //if (comm->me == 0) printf("Before 'create a new group for interaction exclusions': FixGCkMC::init()\n");
+  if (atom->firstgroup >= 0) {
+    int *mask = atom->mask;
+    int firstgroupbit = group->bitmask[atom->firstgroup];
+
+    int flag = 0;
+    for (int i = 0; i < atom->nlocal; i++)
+      if ((mask[i] == groupbit) && (mask[i] && firstgroupbit)) flag = 1;
+
+    int flagall;
+    MPI_Allreduce(&flag,&flagall,1,MPI_INT,MPI_SUM,world);
+
+    if (flagall)
+      error->all(FLERR,"Cannot do gckmc on atoms in atom_modify first group");
+  }
+
+  beta = 1.0/(1.38065e-23*reservoir_temperature);
+
+  kfreact = (float)nevery*preexp*exp(0.5*1*1.6022e-19*beta*potential);
+  kbreact = (float)nevery*preexp*exp(-0.5*1*1.6022e-19*beta*potential);
+
+  imagezero = ((imageint) IMGMAX << IMG2BITS) |
+             ((imageint) IMGMAX << IMGBITS) | IMGMAX;
+
+  // construct group bitmask for all new atoms
+
+  groupbitall = 1 | groupbit;
+
+
+}
+
+/* ----------------------------------------------------------------------
+   attempt Monte Carlo translations, rotations, insertions, and deletions
+   done before exchange, borders, reneighbor
+   so that ghost atoms and neighbor lists will be correct
+------------------------------------------------------------------------- */
+
+void FixGCkMC::pre_exchange()
+{
+  // just return if should not be called on this timestep
+  xlo = domain->boxlo[0];
+  xhi = domain->boxhi[0];
+  ylo = domain->boxlo[1];
+  yhi = domain->boxhi[1];
+  zlo = domain->boxlo[2];
+  zhi = domain->boxhi[2];
+  if (triclinic) {
+    sublo = domain->sublo_lamda;
+    subhi = domain->subhi_lamda;
+  } else {
+    sublo = domain->sublo;
+    subhi = domain->subhi;
+  }
+
+  if (regionflag) volume = region_volume;
+  else volume = domain->xprd * domain->yprd * domain->zprd;
+  if (triclinic) domain->x2lamda(atom->nlocal);
+  domain->pbc();
+  comm->exchange();
+  atom->nghost = 0;
+  comm->borders();
+  if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
+  update_gas_atoms_list();
+  update_product_atoms_list();
+  update_reactive_atoms_list();
+  update_surface_atoms_list();
+
+  surf_x = (double *) memory->smalloc(3*nsurf*sizeof(double),
+  "GCMC:surf_x");
+  extract_surface_position(surf_x, nsurf);
+  for (int i = 0; i < nreact; i++){
+    attempt_atomic_freaction(i, surf_x);
+  }
+  //for (int i = 0; i < nprod; i++){
+  //  attempt_atomic_breaction(i, surf_x);
+  //}
+  memory->sfree(surf_x);
+  next_reneighbor = update->ntimestep + nevery;
+}
+
+void FixGCkMC::extract_surface_position(double *surf_x, int nsurf){
+  //printf("inside extract\n");
+  double **x = atom->x;
+  int i, j, k;
+
+  for(i = 0; i<nsurf_local; i++){
+    j = i + nsurf_before; // the position inside surf_x
+    k =  local_surf_list[i]; //local atom index
+
+    *(surf_x+3*j) = x[k][0];
+    *(surf_x+3*j+1) = x[k][1];
+    *(surf_x+3*j+2) = x[k][2];
+    //printf("Atom: %i x: %f y: %f z: %f\n", j, x[k][0],x[k][1],x[k][2]);
+  }
+}
+
+void FixGCkMC::attempt_atomic_freaction(int i, double *surf_x)
+{
+  nfreaction_attempts += 1.0;
+  int success = 0;
+  if ((i >= nreact_before) &&
+      (i < nreact_before + nreact_local)){
+  int ilocal= i - nreact_before;
+  //printf("freaction try\n");
+  int j = local_react_list[ilocal];
+
+    double **x = atom->x;
+    int *type = atom->type;
+    int tstep = update->dt;
+    double kvel;
+    double r_before = 100.0;
+    double r_new, prob = 0.0;
+
+
+    for(int k=0; k<nsurf; k++){
+      r_new = (pow(x[j][0] - *(surf_x+3*k),2) +
+              pow(x[j][1] - *(surf_x+3*k+1),2) +
+              pow(x[j][2] - *(surf_x+3*k+2),2));
+      if(r_new < r_before) r_before = r_new;
+    }
+
+    r_before = sqrt(r_before);
+    kvel = exp(-r_before)*kfreact;
+    //printf("freaction: z=%f  kvel=%f\n", x[j][2], kvel);
+
+    if (random_unequal->uniform() <
+        1-exp(-kvel*tstep*nevery)) {
+            type[j] = product_type;
+            success += 1;
+            printf("freaction: x=%f  y=%f  z=%e\n", x[j][0],x[j][1],x[j][2]);
+    }
+}
+
+
+    int success_all = 0;
+    //printf("antes del MPI\n");
+    MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
+    //printf("despues del MPI\n");
+    if (success_all) {
+        //next_reneighbor = update->ntimestep;
+        update_gas_atoms_list();
+        update_reactive_atoms_list();
+        update_product_atoms_list();
+        update_surface_atoms_list();
+        nfreaction_successes += 1;
+
+        atom->nghost = 0;
+        comm->borders();
+        comm->exchange();
+    }
+    //printf("freaction end");
+}
+ /* ----------------------------------------------------------------------
+------------------------------------------------------------------------- */
+
+void FixGCkMC::attempt_atomic_breaction(int i, double *surf_x)
+{
+  nbreaction_attempts += 1.0;
+
+  int success = 0;
+
+  if ((i >= nprod_before) &&
+      (i < nprod_before + nprod_local)){
+
+  //printf("breaction try\n");
+    int ilocal = i - nprod_before;
+    int j = local_prod_list[ilocal];
+
+    double **x = atom->x;
+    int tstep = update->dt;
+    double kvel;
+    int *type = atom->type;
+    double r_before = 100.0;
+    double r_new;
+
+    for(int k=0; k<nsurf; k++){
+      r_new = (x[j][0] - *(surf_x+3*k)) * (x[j][0] - *(surf_x+3*k)) +
+              (x[j][1] - *(surf_x+3*k+1)) * (x[j][1] - *(surf_x+3*k+1)) +
+              (x[j][2] - *(surf_x+3*k+2)) * (x[j][2] - *(surf_x+3*k+2));
+      if(r_new < r_before) r_before = r_new;
+    }
+
+    r_before = sqrt(r_before);
+    kvel = exp(-r_before)*kbreact;
+
+    if (random_unequal->uniform() <
+        1-exp(-kvel*tstep*nevery)) {
+            type[j] = reactive_type;
+            success = 1;
+            printf("breaction: x=%f  y=%f  z=%e\n", x[j][0],x[j][1],x[j][2]);
+    }
+
+}
+
+    int success_all = 0;
+    MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
+
+    if (success_all) {
+        update_gas_atoms_list();
+        update_reactive_atoms_list();
+        update_product_atoms_list();
+        update_surface_atoms_list();
+        nbreaction_successes += 1;
+
+        atom->nghost = 0;
+        comm->borders();
+    }
+}
+
+
+/* ----------------------------------------------------------------------
+------------------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------------
+   update the list of gas atoms
+------------------------------------------------------------------------- */
+//Esteban: asegurarse de que actualize correctamente luego de una reaccion
+
+void FixGCkMC::update_gas_atoms_list()
+{
+//printf("Begin of FixGCkMC::update_gas_atoms_list()\n");
+  int nlocal = atom->nlocal;
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  double **x = atom->x;
+
+  if (nlocal > gcmc_nmax) {
+    memory->sfree(local_gas_list);
+    gcmc_nmax = atom->nmax;
+    local_gas_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
+     "GCkMC:local_gas_list");
+    memory->sfree(local_react_list);
+    gcmc_nmax = atom->nmax;
+    local_react_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
+     "GCkMC:local_react_list");
+    memory->sfree(local_prod_list);
+    gcmc_nmax = atom->nmax;
+    local_prod_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
+     "GCkMC:local_prod_list");
+     memory->sfree(local_surf_list);
+     gcmc_nmax = atom->nmax;
+     local_surf_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
+      "GCkMC:local_surf_list");
+  }
+
+  ngas_local = 0;
+ //printf("End of FixGCkMC::update_gas_atoms_list()\n");
+
+}
+
+/* ----------------------------------------------------------------------
+   update the list of reactive atoms
+------------------------------------------------------------------------- */
+
+void FixGCkMC::update_reactive_atoms_list()
+{
+ //if (comm->me == 0) printf("Begin of FixGCkMC::update_reactive_atoms_list()\n");
+  int nlocal = atom->nlocal;
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  double **x = atom->x;
+
+  nreact_local = 0;
+
+    int *type = atom->type;
+
+  if (regionflag) {
+      for (int i = 0; i < nlocal; i++) {
+          if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
+          if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
+            local_react_list[nreact_local] = i;
+            nreact_local++;
+          }
+        }
+      }
+
+
+  } else {
+    for (int i = 0; i < nlocal; i++) {
+        if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
+        local_react_list[nreact_local] = i;
+        nreact_local++;
+      }
+    }
+  }
+
+  MPI_Allreduce(&nreact_local,&nreact,1,MPI_INT,MPI_SUM,world);
+  MPI_Scan(&nreact_local,&nreact_before,1,MPI_INT,MPI_SUM,world);
+  nreact_before -= nreact_local;
+  //printf("proc=%i, nlocal=%i, nreact_local=%i, nreact_before=%i\n", comm->me, nlocal, nreact_local, nreact_before);
+}
+
+/* ----------------------------------------------------------------------
+   update the list of product atoms
+------------------------------------------------------------------------- */
+
+void FixGCkMC::update_product_atoms_list()
+{
+ //if (comm->me == 0) printf("Begin of FixGCkMC::update_product_atoms_list()\n");
+  int nlocal = atom->nlocal;
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  double **x = atom->x;
+
+  nprod_local = 0;
+
+    int *type = atom->type;
+
+  if (regionflag) {
+      for (int i = 0; i < nlocal; i++) {
+          if ((mask[i] & groupbit) && (type[i] == product_type)) {
+          if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
+            local_prod_list[nprod_local] = i;
+            nprod_local++;
+          }
+        }
+      }
+
+
+  } else {
+    for (int i = 0; i < nlocal; i++) {
+        if ((mask[i] & groupbit) && (type[i] == product_type)) {
+        local_prod_list[nprod_local] = i;
+        nprod_local++;
+      }
+    }
+  }
+
+  MPI_Allreduce(&nprod_local,&nprod,1,MPI_INT,MPI_SUM,world);
+  MPI_Scan(&nprod_local,&nprod_before,1,MPI_INT,MPI_SUM,world);
+  nprod_before -= nprod_local;
+  //printf("proc=%i, nlocal=%i, nprod_local=%i, nprod_before=%i\n", comm->me, nlocal, nprod_local, nprod_before);
+}
+
+/* ----------------------------------------------------------------------
+   update the list of reactive atoms
+------------------------------------------------------------------------- */
+
+void FixGCkMC::update_surface_atoms_list()
+{
+ //if (comm->me == 0) printf("Begin of FixGCkMC::update_reactive_atoms_list()\n");
+  int nlocal = atom->nlocal;
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  double **x = atom->x;
+
+  nsurf_local = 0;
+
+    int *type = atom->type;
+
+  if (regionflag) {
+
+      for (int i = 0; i < nlocal; i++) {
+          if ((mask[i] & groupbit) && (type[i] == surf_type)) {
+          if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
+            local_surf_list[nsurf_local] = i;
+            nsurf_local++;
+          }
+        }
+      }
+
+
+  } else {
+    for (int i = 0; i < nlocal; i++) {
+        if ((mask[i] & groupbit) && (type[i] == surf_type)) {
+        local_surf_list[nsurf_local] = i;
+        nsurf_local++;
+      }
+    }
+  }
+
+  MPI_Allreduce(&nsurf_local,&nsurf,1,MPI_INT,MPI_SUM,world);
+  MPI_Scan(&nsurf_local,&nsurf_before,1,MPI_INT,MPI_SUM,world);
+  nsurf_before -= nsurf_local;
+  //printf("proc=%i, nlocal=%i, nreact_local=%i, nreact_before=%i\n", comm->me, nlocal, nreact_local, nreact_before);
+}
+
+/* ----------------------------------------------------------------------
+  return acceptance ratios
+------------------------------------------------------------------------- */
+
+double FixGCkMC::compute_vector(int n)
+{
+  if (n == 0) return nfreaction_attempts;
+  if (n == 1) return nfreaction_successes;
+  if (n == 2) return nbreaction_attempts;
+  if (n == 3) return nbreaction_successes;
+
+  return 0.0;
+}
+
+/* ----------------------------------------------------------------------
+   memory usage of local atom-based arrays
+------------------------------------------------------------------------- */
+
+double FixGCkMC::memory_usage()
+{
+  double bytes = gcmc_nmax * sizeof(int);
+  return bytes;
+}
