@@ -22,26 +22,24 @@ FixStyle(gckmc,FixGCkMC)
 
 #include <stdio.h>
 #include "fix.h"
-//#include "pointers.h"   // added by Jibao, according to Matias' 2012 version
 
 namespace LAMMPS_NS {
 
 class FixGCkMC : public Fix {
+
  public:
   FixGCkMC(class LAMMPS *, int, char **);
   ~FixGCkMC();
   int setmask();
   void init();
-  //void pre_exchange();
-  void END_OF_STEP();
-  void attempt_atomic_freaction(int, double *);
-  void attempt_atomic_breaction(int, double *);
-  void extract_surface_position(double *, int);
+  void init_list(int, class NeighList *);
+
+  void pre_exchange();
+  void attempt_atomic_freaction(int);
 
   void update_gas_atoms_list();
   void update_reactive_atoms_list();
   void update_product_atoms_list();
-  void update_surface_atoms_list();
 
   double compute_vector(int);
   double memory_usage();
@@ -66,11 +64,11 @@ class FixGCkMC : public Fix {
   int reactive_type, product_type, surf_type;
   int nreactions;
   int ngas;                 // # of gas atoms on all procs
-  int nreact, nprod, nsurf;
+  int nreact, nprod;
   int ngas_local;           // # of gas atoms on this proc
-  int nreact_local, nprod_local, nsurf_local; //Esteban
+  int nreact_local, nprod_local; //Esteban
   int ngas_before;          // # of gas atoms on procs < this proc
-  int nreact_before, nprod_before, nsurf_before;
+  int nreact_before, nprod_before;
   int mode;                 // ATOM or MOLECULE
   int regionflag;           // 0 = anywhere in box, 1 = specific region
   class Region *iregion;              // gcmc region
@@ -98,16 +96,15 @@ class FixGCkMC : public Fix {
   int *local_gas_list;
   int *local_react_list;
   int *local_prod_list;
-  int *local_surf_list;
   double **cutsq;
   double **atom_coord;
-  double *surf_x;
   imageint imagezero;
   int imol,nmol;
 
   double energy_intra;
   class Molecule **onemols;
   class Pair *pair;
+  class NeighList *list;
 
   class RanPark *random_equal;
   class RanPark *random_unequal;

@@ -47,10 +47,10 @@ class FixGCkMC : public Fix {
   void attempt_molecule_rotation_full();
   void attempt_molecule_deletion_full();
   void attempt_molecule_insertion_full();
-  
+
   void attempt_atomic_freaction(int); //Esteban
   void attempt_atomic_breaction(int); //Esteban
-  
+
   double energy(int, int, tagint, double *);
   double molecule_energy(tagint);
   double energy_full();
@@ -59,30 +59,30 @@ class FixGCkMC : public Fix {
   int pick_random_product_atom(); //Esteban
   tagint pick_random_gas_molecule();
   void toggle_intramolecular(int);
-  
+
   void update_gas_atoms_list();
   void update_reactive_atoms_list();
   void update_product_atoms_list();
-  
+
   double compute_vector(int);
   double memory_usage();
   void write_restart(FILE *);
   void restart(char *);
-    
+
     void create_gaslist(); // from Matias' version; added by Jibao
 
  private:
     int pairflag;       // 0=lj/cut 1=Stw // from Matias' version; added by Jibao
     //int pressflag;      // 0=no 1=yes        // from Matias' version; added by Jibao
-    
+
     double energyout;     // from from Matias' version; added by Jibao; added by Jibao
     double randomsito;    // from Matias' version; added by Jibao
     FILE *fp;             // from Matias' version; added by Jibao
-    
+
     //class PairHybrid *pairhybrid; // from Matias' version; added by Jibao
-    
-    
-    
+
+
+
   int molecule_group,molecule_group_bit;
   int molecule_group_inversebit;
   int exclusion_group,exclusion_group_bit;
@@ -98,7 +98,7 @@ class FixGCkMC : public Fix {
   int nreact_before, nprod_before; //Esteban
   int mode;                 // ATOM or MOLECULE
   int regionflag;           // 0 = anywhere in box, 1 = specific region
-  int iregion;              // gcmc region
+  class Region *iregion;              // gcmc region
   char *idregion;           // gcmc region id
   bool pressure_flag;       // true if user specified reservoir pressure
   bool charge_flag;         // true if user specified atomic charge
@@ -156,7 +156,7 @@ class FixGCkMC : public Fix {
 
   class RanPark *random_equal;
   class RanPark *random_unequal;
-    
+
     class Pair *pairsw; //nuevo; from from Matias' version; added by Jibao; added by Jibao
 
   class Atom *model_atom;
