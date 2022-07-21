@@ -60,7 +60,7 @@ class FixGCkMC : public Fix {
   int molecule_group,molecule_group_bit;
   int molecule_group_inversebit;
   int exclusion_group,exclusion_group_bit;
-  int ngcmc,nevery,seed;
+  int nevery,seed;
   int reactive_type, product_type, surf_type;
   int nreactions;
   int ngas;                 // # of gas atoms on all procs
@@ -82,28 +82,18 @@ class FixGCkMC : public Fix {
   double nbreaction_attempts;
   double nbreaction_successes;
   int gcmc_nmax;
-  double gas_mass;
-  double reservoir_temperature;
-  double tfac_insert;
-  double displace;
-  double beta,zz,sigma,volume;
+  double beta, reservoir_temperature;
   double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;//Esteban
   double center[3]; //Esteban
   double xlo,xhi,ylo,yhi,zlo,zhi;
   double region_xlo,region_xhi,region_ylo,region_yhi,region_zlo,region_zhi;
-  double region_volume;
   double *sublo,*subhi;
   int *local_gas_list;
   int *local_react_list;
   int *local_prod_list;
-  double **cutsq;
-  double **atom_coord;
   imageint imagezero;
   int imol,nmol;
 
-  double energy_intra;
-  class Molecule **onemols;
-  class Pair *pair;
   class NeighList *list;
 
   class RanPark *random_equal;
@@ -111,8 +101,6 @@ class FixGCkMC : public Fix {
 
   class Atom *model_atom;
 
-  double **coords;
-  imageint *imageflags;
   int triclinic;                         // 0 = orthog box, 1 = triclinic
 
   class Compute *c_pe;

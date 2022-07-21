@@ -33,7 +33,6 @@
 #include "neigh_request.h"
 #include "random_park.h"
 #include "math_const.h"
-#include "my_page.h"
 #include <iostream>
 #include <cmath>
 #include <cstring>
@@ -148,8 +147,6 @@ void FixGCkMC::options(int narg, char **arg)
   mode = ATOM;
   regionflag = 0;
   iregion = nullptr;
-  pair = nullptr;
-
 
   int iarg = 0;
   while (iarg < narg) {
@@ -181,12 +178,7 @@ FixGCkMC::~FixGCkMC()
   memory->destroy(local_gas_list);
   memory->destroy(local_react_list);
   memory->destroy(local_prod_list);
-  memory->destroy(atom_coord);
-  memory->destroy(coords);
-  memory->destroy(imageflags);
 
-
-   // if (comm->me == 0) printf("End of FixGCkMC::~FixGCkMC()\n");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -249,11 +241,8 @@ void FixGCkMC::init()
 
   //request neighbor lists as in "Extending and Modifying LAMMPS" p53
 
-  int irequest = neighbor->request(this,instance_me);
-  neighbor->requests[irequest]->pair = 0;
-  neighbor->requests[irequest]->fix = 1;
-  neighbor->requests[irequest]->half = 0;
-  neighbor->requests[irequest]->full = 1;
+  neighbor->add_request(this,NeighConst::REQ_FULL);
+
 }
 /* ---------------------------------------------------------------------- */
 
@@ -286,8 +275,6 @@ void FixGCkMC::pre_exchange()
     subhi = domain->subhi;
   }
 
-  if (regionflag) volume = region_volume;
-  else volume = domain->xprd * domain->yprd * domain->zprd;
   if (triclinic) domain->x2lamda(atom->nlocal);
   domain->pbc();
   comm->exchange();
@@ -369,8 +356,7 @@ void FixGCkMC::attempt_atomic_freaction(int nreact)
   int success_all = 0;
   MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
   if (success_all) {
-    printf("anted de NeighList");
-      update_gas_atoms_list();
+        update_gas_atoms_list();
       update_reactive_atoms_list();
       update_product_atoms_list();
       nfreaction_successes += 1;
