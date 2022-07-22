@@ -261,6 +261,7 @@ void FixGCkMC::init_list(int /*id*/, NeighList *ptr)
 
 void FixGCkMC::pre_exchange()
 {
+  if (next_reneighbor != update->ntimestep) return;
   xlo = domain->boxlo[0];
   xhi = domain->boxhi[0];
   ylo = domain->boxlo[1];
@@ -288,8 +289,8 @@ void FixGCkMC::pre_exchange()
 
   attempt_atomic_freaction(nreact);
 
-
   next_reneighbor = update->ntimestep + nevery;
+
 }
 
 void FixGCkMC::attempt_atomic_freaction(int nreact)
@@ -346,17 +347,17 @@ void FixGCkMC::attempt_atomic_freaction(int nreact)
 
 
     if (random_unequal->uniform() <
-        1-exp(-kvel*tstep*nevery)) {
+        1-exp(-kvel*tstep)) {
             type[j] = product_type;
             success += 1;
-            printf("freaction: x=%f  y=%f  z=%e\n", x[j][0],x[j][1],x[j][2]);
+            printf("freaction: x=%f  y=%f  z=%f\n", x[j][0],x[j][1],x[j][2]);
     }
   }
   // Comunicate to the other processors and remake lists if needed
   int success_all = 0;
   MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
   if (success_all) {
-        update_gas_atoms_list();
+      update_gas_atoms_list();
       update_reactive_atoms_list();
       update_product_atoms_list();
       nfreaction_successes += 1;
