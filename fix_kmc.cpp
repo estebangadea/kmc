@@ -306,7 +306,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
   for(int i; i<nreact; i++)
   {
     // is this atom in this processor
-    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){  
+    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){ 
 
       int ilocal= i - nreact_before;
 
@@ -338,8 +338,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
     rsq1 = sqrt(rsq1);
     kvel = exp(-rsq1)*kfreact;
 
-      if (random_unequal->uniform() <
-          1-exp(-kvel*tstep)) {
+      if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
               type[j] = product_type;
               success += 1;
       }
