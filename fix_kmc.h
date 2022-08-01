@@ -43,19 +43,9 @@ class Fixkmc : public Fix {
 
   double compute_vector(int);
   double memory_usage();
-  //void write_restart(FILE *);
-  //void restart(char *);
-
-    //void create_gaslist(); // from Matias' version; added by Jibao
 
  private:
-    //int pressflag;      // 0=no 1=yes        // from Matias' version; added by Jibao
-
-    FILE *fp;             // from Matias' version; added by Jibao
-
-    //class PairHybrid *pairhybrid; // from Matias' version; added by Jibao
-
-
+    FILE *fp;
 
   int molecule_group,molecule_group_bit;
   int molecule_group_inversebit;
@@ -63,19 +53,17 @@ class Fixkmc : public Fix {
   int nevery,seed;
   int reactive_type, product_type, surf_type;
   int nreactions;
-  int ngas;                 // # of gas atoms on all procs
+  int ngas;                         // # of gas atoms on all procs
   int nreact, nprod;
-  int ngas_local;           // # of gas atoms on this proc
-  int nreact_local, nprod_local; //Esteban
-  int ngas_before;          // # of gas atoms on procs < this proc
+  int ngas_local;                   // # of gas atoms on this proc
+  int ngas_before;                  // # of gas atoms on procs < this proc
   int nreact_before, nprod_before;
-  int mode;                 // ATOM or MOLECULE
-  int regionflag;           // 0 = anywhere in box, 1 = specific region
-  class Region *iregion;              // gcmc region
-  char *idregion;           // gcmc region id
-  int natoms_per_molecule;  // number of atoms in each gas molecule
-
-  int groupbitall;          // group bitmask for inserted atoms
+  int mode;                         // ATOM or MOLECULE
+  int regionflag;                   // 0 = anywhere in box, 1 = specific region
+  class Region *iregion;            // gcmc region
+  char *idregion;                   // gcmc region id
+  int natoms_per_molecule;          // number of atoms in each gas molecule
+  int groupbitall;                  // group bitmask for inserted atoms
 
   double nfreaction_attempts;
   double nfreaction_successes;
@@ -83,8 +71,6 @@ class Fixkmc : public Fix {
   double nbreaction_successes;
   int gcmc_nmax;
   double beta, reservoir_temperature;
-  double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;//Esteban
-  double center[3]; //Esteban
   double xlo,xhi,ylo,yhi,zlo,zhi;
   double region_xlo,region_xhi,region_ylo,region_yhi,region_zlo,region_zhi;
   double *sublo,*subhi;
@@ -94,6 +80,11 @@ class Fixkmc : public Fix {
   imageint imagezero;
   int imol,nmol;
 
+   // KMC Specific
+  double center[3]; 
+  double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;
+  int nreact_local, nprod_local;
+
   class NeighList *list;
 
   class RanPark *random_equal;
@@ -101,7 +92,7 @@ class Fixkmc : public Fix {
 
   class Atom *model_atom;
 
-  int triclinic;                         // 0 = orthog box, 1 = triclinic
+  int triclinic;                     // 0 = orthog box, 1 = triclinic
 
   class Compute *c_pe;
 
