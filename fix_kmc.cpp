@@ -80,18 +80,15 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   if (reservoir_temperature < 0.0) 
     error->all(FLERR,"Illegal fix kmc reservoir temperature {}", reservoir_temperature);
 
-    regionflag=0;
+  regionflag = 0;
 
   // read options from end of input line
-
   options(narg-11,&arg[11]);
 
   // random number generator, same for all procs
-
   random_equal = new RanPark(lmp,seed);
 
   // random number generator, not the same for all procs
-
   random_unequal = new RanPark(lmp,seed);
 
   // error checks on region and its extent being inside simulation box
@@ -199,7 +196,6 @@ int Fixkmc::setmask()
 void Fixkmc::init()
 {
   triclinic = domain->triclinic;
-    //if (comm->me == 0) printf("Begins 2: Fixkmc::init()\n");
 
   int *type = atom->type;
   if (mode == ATOM) {
@@ -214,7 +210,6 @@ void Fixkmc::init()
 
   // create a new group for interaction exclusions
 
-    //if (comm->me == 0) printf("Before 'create a new group for interaction exclusions': Fixkmc::init()\n");
   if (atom->firstgroup >= 0) {
     int *mask = atom->mask;
     int firstgroupbit = group->bitmask[atom->firstgroup];
@@ -239,13 +234,9 @@ void Fixkmc::init()
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
 
   // construct group bitmask for all new atoms
-
   groupbitall = 1 | groupbit;
 
-  //request neighbor lists as in "Extending and Modifying LAMMPS" p53
-
   neighbor->add_request(this,NeighConst::REQ_FULL);
-
 }
 /* ---------------------------------------------------------------------- */
 
@@ -254,11 +245,8 @@ void Fixkmc::init_list(int /*id*/, NeighList *ptr)
   list = ptr;
 }
 
-/* ---------------------------------------------------------------------- */
-
-
 /* ----------------------------------------------------------------------
-   attempt kinetic Monte Carlo reactions consisting in changing types
+   Attempt Kinetic Monte Carlo reactions consisting in changing types
    depending to the distance to a catalyst
 ------------------------------------------------------------------------- */
 
@@ -317,62 +305,61 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
 
   for(int i; i<nreact; i++)
   {
-  if ((i >= nreact_before) &&
-      (i < nreact_before + nreact_local)){ //is this atom in this processor
+    // is this atom in this processor
+    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){  
 
-    int ilocal= i - nreact_before;
-    int j = local_react_list[ilocal]; // j is the actual id of the atom
+      int ilocal= i - nreact_before;
 
-    xtmp = x[j][0];
-    ytmp = x[j][1];
-    ztmp = x[j][2];
+      // j is the actual id of the atom
+      int j = local_react_list[ilocal];  
 
-    jlist = firstneigh[j];
-    jnum = numneigh[j];
-    rsq1 = 1000;
+      xtmp = x[j][0];
+      ytmp = x[j][1];
+      ztmp = x[j][2];
 
-    for (int jj = 0; jj < jnum; jj++) { //go find me the closest surf_type
-      k = jlist[jj];
-      k &= NEIGHMASK;
-      if (type[k] == surf_type)
-      {
+      jlist = firstneigh[j];
+      jnum = numneigh[j];
+      rsq1 = INT_MAX;
 
-        delx = xtmp - x[k][0];
-        dely = ytmp - x[k][1];
-        delz = ztmp - x[k][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq < rsq1) rsq1 = rsq;
+      // go find me the closest surf_type
+      for (int jj = 0; jj < jnum; jj++) { 
+        k = jlist[jj];
+        k &= NEIGHMASK;
+        if (type[k] == surf_type)
+        {
+          delx = xtmp - x[k][0];
+          dely = ytmp - x[k][1];
+          delz = ztmp - x[k][2];
+          rsq = delx*delx + dely*dely + delz*delz;
+          if (rsq < rsq1) rsq1 = rsq;
+        }
       }
-    }
 
     rsq1 = sqrt(rsq1);
     kvel = exp(-rsq1)*kfreact;
 
+      if (random_unequal->uniform() <
+          1-exp(-kvel*tstep)) {
+              type[j] = product_type;
+              success += 1;
+      }
+    }
 
-    if (random_unequal->uniform() <
-        1-exp(-kvel*tstep)) {
-            type[j] = product_type;
-            success += 1;
-            printf("freaction: x=%f  y=%f  z=%f\n", x[j][0],x[j][1],x[j][2]);
+    // Comunicate to the other processors and remake lists if needed
+    int success_all = 0;
+    MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
+    if (success_all) {
+        update_gas_atoms_list();
+        update_reactive_atoms_list();
+        update_product_atoms_list();
+        nfreaction_successes += 1;
+
+        atom->nghost = 0;
+        comm->borders();
+        comm->exchange();
     }
   }
-  // Comunicate to the other processors and remake lists if needed
-  int success_all = 0;
-  MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
-  if (success_all) {
-      update_gas_atoms_list();
-      update_reactive_atoms_list();
-      update_product_atoms_list();
-      nfreaction_successes += 1;
-
-      atom->nghost = 0;
-      comm->borders();
-      comm->exchange();
-  }
 }
-}
- /* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
    update the list of gas atoms. Esteban: Now just initializes the memory
@@ -418,19 +405,17 @@ void Fixkmc::update_reactive_atoms_list()
 
   nreact_local = 0;
 
-    int *type = atom->type;
+  int *type = atom->type;
 
   if (regionflag) {
       for (int i = 0; i < nlocal; i++) {
-          if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
+        if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
           if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
             local_react_list[nreact_local] = i;
             nreact_local++;
           }
         }
       }
-
-
   } else {
     for (int i = 0; i < nlocal; i++) {
         if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
@@ -458,19 +443,17 @@ void Fixkmc::update_product_atoms_list()
 
   nprod_local = 0;
 
-    int *type = atom->type;
+  int *type = atom->type;
 
   if (regionflag) {
       for (int i = 0; i < nlocal; i++) {
-          if ((mask[i] & groupbit) && (type[i] == product_type)) {
+        if ((mask[i] & groupbit) && (type[i] == product_type)) {
           if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
             local_prod_list[nprod_local] = i;
             nprod_local++;
           }
         }
       }
-
-
   } else {
     for (int i = 0; i < nlocal; i++) {
         if ((mask[i] & groupbit) && (type[i] == product_type)) {
