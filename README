@@ -1,0 +1,15 @@
+kMC
+
+# nevery
+for a simulation at 298K with a preexponential factor of 6e-7
+the value of nevery*timestep that is safe to use depends on the potential
+Here are some reference values for common potentials
+
+Potential     nevery*timestep
+0.1 V         3514
+0.2 V         501
+0.3 V         71
+0.4 V         10
+0.5 V         1.5
+
+For higher potentials there might be necessary to decrease the timestep

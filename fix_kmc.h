@@ -13,52 +13,29 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(gckmc,FixGCkMC)
+FixStyle(kmc,Fixkmc)
 
 #else
 
-#ifndef LMP_FIX_GCKMC_H
-#define LMP_FIX_GCKMC_H
+#ifndef LMP_FIX_kmc_H
+#define LMP_FIX_kmc_H
 
 #include <stdio.h>
 #include "fix.h"
-//#include "pointers.h"   // added by Jibao, according to Matias' 2012 version
 
 namespace LAMMPS_NS {
 
-class FixGCkMC : public Fix {
+class Fixkmc : public Fix {
+
  public:
-  FixGCkMC(class LAMMPS *, int, char **);
-  ~FixGCkMC();
+  Fixkmc(class LAMMPS *, int, char **);
+  ~Fixkmc();
   int setmask();
   void init();
+  void init_list(int, class NeighList *);
+
   void pre_exchange();
-  void attempt_atomic_translation();
-  void attempt_atomic_deletion();
-  void attempt_atomic_insertion();
-  void attempt_molecule_translation();
-  void attempt_molecule_rotation();
-  void attempt_molecule_deletion();
-  void attempt_molecule_insertion();
-  void attempt_atomic_translation_full();
-  void attempt_atomic_deletion_full();
-  void attempt_atomic_insertion_full();
-  void attempt_molecule_translation_full();
-  void attempt_molecule_rotation_full();
-  void attempt_molecule_deletion_full();
-  void attempt_molecule_insertion_full();
-
-  void attempt_atomic_freaction(int); //Esteban
-  void attempt_atomic_breaction(int); //Esteban
-
-  double energy(int, int, tagint, double *);
-  double molecule_energy(tagint);
-  double energy_full();
-  int pick_random_gas_atom();
-  int pick_random_reactive_atom(); //Esteban
-  int pick_random_product_atom(); //Esteban
-  tagint pick_random_gas_molecule();
-  void toggle_intramolecular(int);
+  void attempt_atomic_freaction(int);
 
   void update_gas_atoms_list();
   void update_reactive_atoms_list();
@@ -66,17 +43,14 @@ class FixGCkMC : public Fix {
 
   double compute_vector(int);
   double memory_usage();
-  void write_restart(FILE *);
-  void restart(char *);
+  //void write_restart(FILE *);
+  //void restart(char *);
 
-    void create_gaslist(); // from Matias' version; added by Jibao
+    //void create_gaslist(); // from Matias' version; added by Jibao
 
  private:
-    int pairflag;       // 0=lj/cut 1=Stw // from Matias' version; added by Jibao
     //int pressflag;      // 0=no 1=yes        // from Matias' version; added by Jibao
 
-    double energyout;     // from from Matias' version; added by Jibao; added by Jibao
-    double randomsito;    // from Matias' version; added by Jibao
     FILE *fp;             // from Matias' version; added by Jibao
 
     //class PairHybrid *pairhybrid; // from Matias' version; added by Jibao
@@ -86,88 +60,47 @@ class FixGCkMC : public Fix {
   int molecule_group,molecule_group_bit;
   int molecule_group_inversebit;
   int exclusion_group,exclusion_group_bit;
-  int ngcmc_type,nevery,seed;
-  int reactive_type, product_type; //Esteban
-  int ncycles,nexchanges,nmcmoves;
-  int nreactions; //Esteban
+  int nevery,seed;
+  int reactive_type, product_type, surf_type;
+  int nreactions;
   int ngas;                 // # of gas atoms on all procs
-  int nreact, nprod; //Esteban
+  int nreact, nprod;
   int ngas_local;           // # of gas atoms on this proc
   int nreact_local, nprod_local; //Esteban
   int ngas_before;          // # of gas atoms on procs < this proc
-  int nreact_before, nprod_before; //Esteban
+  int nreact_before, nprod_before;
   int mode;                 // ATOM or MOLECULE
   int regionflag;           // 0 = anywhere in box, 1 = specific region
   class Region *iregion;              // gcmc region
   char *idregion;           // gcmc region id
-  bool pressure_flag;       // true if user specified reservoir pressure
-  bool charge_flag;         // true if user specified atomic charge
-  bool full_flag;           // true if doing full system energy calculations
-
   int natoms_per_molecule;  // number of atoms in each gas molecule
 
   int groupbitall;          // group bitmask for inserted atoms
-  int ngroups;              // number of group-ids for inserted atoms
-  char** groupstrings;      // list of group-ids for inserted atoms
-  int ngrouptypes;          // number of type-based group-ids for inserted atoms
-  char** grouptypestrings;  // list of type-based group-ids for inserted atoms
-  int* grouptypebits;       // list of type-based group bitmasks
-  int* grouptypes;          // list of type-based group types
-  double ntranslation_attempts;
-  double ntranslation_successes;
-  double nrotation_attempts;
-  double nrotation_successes;
-  double ndeletion_attempts;
-  double ndeletion_successes;
-  double ninsertion_attempts;
-  double ninsertion_successes;
-  double nfreaction_attempts; //Esteban
+
+  double nfreaction_attempts;
   double nfreaction_successes;
   double nbreaction_attempts;
   double nbreaction_successes;
-
   int gcmc_nmax;
-  int max_region_attempts;
-  double gas_mass;
-  double reservoir_temperature;
-  double tfac_insert;
-  double chemical_potential;
-  double displace;
-  double max_rotation_angle;
-  double beta,zz,sigma,volume;
-  double kfreact, kbreact, potential, preexp, electrode_radi;//Esteban
+  double beta, reservoir_temperature;
+  double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;//Esteban
   double center[3]; //Esteban
-  double pressure,fugacity_coeff,charge;
   double xlo,xhi,ylo,yhi,zlo,zhi;
   double region_xlo,region_xhi,region_ylo,region_yhi,region_zlo,region_zhi;
-  double region_volume;
-  double energy_stored;
   double *sublo,*subhi;
   int *local_gas_list;
   int *local_react_list;
   int *local_prod_list;
-  double **cutsq;
-  double **atom_coord;
   imageint imagezero;
+  int imol,nmol;
 
-  double energy_intra;
-
-  class Pair *pair;
+  class NeighList *list;
 
   class RanPark *random_equal;
   class RanPark *random_unequal;
 
-    class Pair *pairsw; //nuevo; from from Matias' version; added by Jibao; added by Jibao
-
   class Atom *model_atom;
 
-  class Molecule **onemols;
-  int imol,nmol;
-  double **coords;
-  imageint *imageflags;
-  class Fix *fixshake;
-  int shakeflag;
-  char *idshake;
   int triclinic;                         // 0 = orthog box, 1 = triclinic
 
   class Compute *c_pe;
