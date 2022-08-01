@@ -225,10 +225,10 @@ void Fixkmc::init()
       error->all(FLERR,"Cannot do kmc on atoms in atom_modify first group");
   }
 
-  beta = 1.0/(1.38065e-23*reservoir_temperature);
+  beta = 1.0/(force->boltz*reservoir_temperature);
 
-  kfreact = (float)nevery*preexp*exp(0.5*1*1.6022e-19*beta*potential);
-  kbreact = (float)nevery*preexp*exp(-0.5*1*1.6022e-19*beta*potential);
+  kfreact = (float)nevery * preexp * exp(0.5 * 1 * force->qelectron * beta * potential);
+  kbreact = (float)nevery * preexp * exp(-0.5 * 1 * force->qelectron * beta * potential);
 
   imagezero = ((imageint) IMGMAX << IMG2BITS) |
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
