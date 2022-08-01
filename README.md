@@ -35,17 +35,21 @@ fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nev
 ## Theory
 Please refer to:
 Gadea, E. D., Perez Sirkin, Y. A., Molinero, V., & Scherlis, D. A. (2020). Electrochemically generated nanobubbles: invariance of the current with respect to electrode size and potential. The Journal of Physical Chemistry Letters, 11(16), 6573-6579.
-
-## nevery reference
+[https://doi.org/10.1021/acs.jpclett.0c01404](https://doi.org/10.1021/acs.jpclett.0c01404)
+## Nevery usage
 for a simulation at 298K with a preexponential factor of 6e-7
 the value of nevery*timestep that is safe to use depends on the potential
 Here are some reference values for common potentials
 
-Potential     nevery*timestep
-0.1 V         3514
-0.2 V         501
-0.3 V         71
-0.4 V         10
-0.5 V         1.5
+| Potential | Nevery*timestep |
+|-----------|-----------------|
+| 0.1       | 3514            |
+| 0.2       | 501             |
+| 0.3       | 71              |
+| 0.4       | 10              |
+| 0.5       | 1.5             |
 
 For higher potentials there might be necessary to decrease the timestep
+
+## Region optional
+The reaction can be restricted to a declared region using the region ${regionID} optional argument in the fix
