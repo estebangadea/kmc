@@ -227,8 +227,8 @@ void Fixkmc::init()
 
   beta = 1.0/(force->boltz*reservoir_temperature);
 
-  kfreact = (float)nevery * preexp * exp(0.5 * 1 * force->qelectron * beta * potential);
-  kbreact = (float)nevery * preexp * exp(-0.5 * 1 * force->qelectron * beta * potential);
+  kfreact = (float)nevery * preexp * exp(0.5 * force->qelectron * beta * potential);
+  kbreact = (float)nevery * preexp * exp(-0.5 * force->qelectron * beta * potential);
 
   imagezero = ((imageint) IMGMAX << IMG2BITS) |
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
