@@ -50,7 +50,8 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   list(nullptr)
 {
-  if (narg < 11) error->all(FLERR,"Illegal fix kmc command");
+  if (narg < 11) 
+    error->all(FLERR,"Incorrect number of fix kmc arguments {}", narg);
 
   if (atom->molecular == 2)
     error->all(FLERR,"Fix kmc does not (yet) work with atom_style template");
@@ -74,9 +75,10 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   seed = utils::inumeric(FLERR,arg[9],false,lmp);
   nevery = utils::inumeric(FLERR,arg[10],false,lmp);
 
-  if (seed <= 0) error->all(FLERR,"Illegal fix kmc command");
-  if (reservoir_temperature < 0.0)
-    error->all(FLERR,"Illegal fix kmc command");
+  if (seed <= 0) 
+    error->all(FLERR,"Illegal fix kmc seed {}", seed);
+  if (reservoir_temperature < 0.0) 
+    error->all(FLERR,"Illegal fix kmc reservoir temperature {}", reservoir_temperature);
 
     regionflag=0;
 
@@ -140,7 +142,8 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
 
 void Fixkmc::options(int narg, char **arg)
 {
-  if (narg < 0) error->all(FLERR,"Illegal fix kmc command");
+  if (narg < 0) 
+    utils::missing_cmd_args(FLERR, "fix kmc", error);
 
   // defaults
 
@@ -151,10 +154,10 @@ void Fixkmc::options(int narg, char **arg)
   int iarg = 0;
   while (iarg < narg) {
   if (strcmp(arg[iarg],"mol") == 0) {
-      error->all(FLERR,"kmc does not work with molecules! (yet)");
-      iarg += 2;
+      error->all(FLERR,"Fix kmc does not work with molecules (yet)!");
     } else if (strcmp(arg[iarg],"region") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix kmc command");
+      if (iarg+2 > narg) 
+        utils::missing_cmd_args(FLERR, "fix kmc", error);
       iregion = domain->get_region_by_id(arg[iarg+1]);
       if (iregion == nullptr)
         error->all(FLERR,"Region ID for fix kmc does not exist");
@@ -163,7 +166,7 @@ void Fixkmc::options(int narg, char **arg)
       strcpy(idregion,arg[iarg+1]);
       regionflag = 1;
       iarg += 2;
-    } else error->all(FLERR,"Illegal fix kmc command");
+    } else error->all(FLERR,"Illegal fix kmc command {}", arg[iarg]);
   }
 }
 
@@ -201,9 +204,9 @@ void Fixkmc::init()
   int *type = atom->type;
   if (mode == ATOM) {
     if (product_type <= 0 || product_type > atom->ntypes)
-      error->all(FLERR,"Invalid atom type in fix kmc command");
+      error->all(FLERR,"Invalid product atom type in fix kmc command {}", product_type);
     if (reactive_type <= 0 || reactive_type > atom->ntypes)
-      error->all(FLERR,"Invalid atom type in fix kmc command");
+      error->all(FLERR,"Invalid reactive atom type in fix kmc command {}", reactive_type);
   }
 
   if (domain->dimension == 2)
