@@ -12,7 +12,7 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Contributing author: Paul Crozier, Aidan Thompson (SNL)
+   Contributing author: Esteban Gadea (U of Buenos Aires)
 ------------------------------------------------------------------------- */
 
 #include "fix_kmc.h"
@@ -50,7 +50,8 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   list(nullptr)
 {
-  if (narg < 11) error->all(FLERR,"Illegal fix kmc command");
+  if (narg < 11) 
+    error->all(FLERR,"Incorrect number of fix kmc arguments {}", narg);
 
   if (atom->molecular == 2)
     error->all(FLERR,"Fix kmc does not (yet) work with atom_style template");
@@ -74,22 +75,20 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   seed = utils::inumeric(FLERR,arg[9],false,lmp);
   nevery = utils::inumeric(FLERR,arg[10],false,lmp);
 
-  if (seed <= 0) error->all(FLERR,"Illegal fix kmc command");
-  if (reservoir_temperature < 0.0)
-    error->all(FLERR,"Illegal fix kmc command");
+  if (seed <= 0) 
+    error->all(FLERR,"Illegal fix kmc seed {}", seed);
+  if (reservoir_temperature < 0.0) 
+    error->all(FLERR,"Illegal fix kmc reservoir temperature {}", reservoir_temperature);
 
-    regionflag=0;
+  regionflag = 0;
 
   // read options from end of input line
-
   options(narg-11,&arg[11]);
 
   // random number generator, same for all procs
-
   random_equal = new RanPark(lmp,seed);
 
   // random number generator, not the same for all procs
-
   random_unequal = new RanPark(lmp,seed);
 
   // error checks on region and its extent being inside simulation box
@@ -140,7 +139,8 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
 
 void Fixkmc::options(int narg, char **arg)
 {
-  if (narg < 0) error->all(FLERR,"Illegal fix kmc command");
+  if (narg < 0) 
+    utils::missing_cmd_args(FLERR, "fix kmc", error);
 
   // defaults
 
@@ -151,10 +151,10 @@ void Fixkmc::options(int narg, char **arg)
   int iarg = 0;
   while (iarg < narg) {
   if (strcmp(arg[iarg],"mol") == 0) {
-      error->all(FLERR,"kmc does not work with molecules! (yet)");
-      iarg += 2;
+      error->all(FLERR,"Fix kmc does not work with molecules (yet)!");
     } else if (strcmp(arg[iarg],"region") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix kmc command");
+      if (iarg+2 > narg) 
+        utils::missing_cmd_args(FLERR, "fix kmc", error);
       iregion = domain->get_region_by_id(arg[iarg+1]);
       if (iregion == nullptr)
         error->all(FLERR,"Region ID for fix kmc does not exist");
@@ -163,7 +163,7 @@ void Fixkmc::options(int narg, char **arg)
       strcpy(idregion,arg[iarg+1]);
       regionflag = 1;
       iarg += 2;
-    } else error->all(FLERR,"Illegal fix kmc command");
+    } else error->all(FLERR,"Illegal fix kmc command {}", arg[iarg]);
   }
 }
 
@@ -196,14 +196,13 @@ int Fixkmc::setmask()
 void Fixkmc::init()
 {
   triclinic = domain->triclinic;
-    //if (comm->me == 0) printf("Begins 2: Fixkmc::init()\n");
 
   int *type = atom->type;
   if (mode == ATOM) {
     if (product_type <= 0 || product_type > atom->ntypes)
-      error->all(FLERR,"Invalid atom type in fix kmc command");
+      error->all(FLERR,"Invalid product atom type in fix kmc command {}", product_type);
     if (reactive_type <= 0 || reactive_type > atom->ntypes)
-      error->all(FLERR,"Invalid atom type in fix kmc command");
+      error->all(FLERR,"Invalid reactive atom type in fix kmc command {}", reactive_type);
   }
 
   if (domain->dimension == 2)
@@ -211,7 +210,6 @@ void Fixkmc::init()
 
   // create a new group for interaction exclusions
 
-    //if (comm->me == 0) printf("Before 'create a new group for interaction exclusions': Fixkmc::init()\n");
   if (atom->firstgroup >= 0) {
     int *mask = atom->mask;
     int firstgroupbit = group->bitmask[atom->firstgroup];
@@ -227,22 +225,18 @@ void Fixkmc::init()
       error->all(FLERR,"Cannot do kmc on atoms in atom_modify first group");
   }
 
-  beta = 1.0/(1.38065e-23*reservoir_temperature);
+  beta = 1.0/(force->boltz*reservoir_temperature);
 
-  kfreact = (float)nevery*preexp*exp(0.5*1*1.6022e-19*beta*potential);
-  kbreact = (float)nevery*preexp*exp(-0.5*1*1.6022e-19*beta*potential);
+  kfreact = (float)nevery * preexp * exp(0.5 * force->qelectron * beta * potential);
+  kbreact = (float)nevery * preexp * exp(-0.5 * force->qelectron * beta * potential);
 
   imagezero = ((imageint) IMGMAX << IMG2BITS) |
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
 
   // construct group bitmask for all new atoms
-
   groupbitall = 1 | groupbit;
 
-  //request neighbor lists as in "Extending and Modifying LAMMPS" p53
-
   neighbor->add_request(this,NeighConst::REQ_FULL);
-
 }
 /* ---------------------------------------------------------------------- */
 
@@ -251,11 +245,8 @@ void Fixkmc::init_list(int /*id*/, NeighList *ptr)
   list = ptr;
 }
 
-/* ---------------------------------------------------------------------- */
-
-
 /* ----------------------------------------------------------------------
-   attempt kinetic Monte Carlo reactions consisting in changing types
+   Attempt Kinetic Monte Carlo reactions consisting in changing types
    depending to the distance to a catalyst
 ------------------------------------------------------------------------- */
 
@@ -314,62 +305,60 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
 
   for(int i; i<nreact; i++)
   {
-  if ((i >= nreact_before) &&
-      (i < nreact_before + nreact_local)){ //is this atom in this processor
+    // is this atom in this processor
+    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){ 
 
-    int ilocal= i - nreact_before;
-    int j = local_react_list[ilocal]; // j is the actual id of the atom
+      int ilocal= i - nreact_before;
 
-    xtmp = x[j][0];
-    ytmp = x[j][1];
-    ztmp = x[j][2];
+      // j is the actual id of the atom
+      int j = local_react_list[ilocal];  
 
-    jlist = firstneigh[j];
-    jnum = numneigh[j];
-    rsq1 = 1000;
+      xtmp = x[j][0];
+      ytmp = x[j][1];
+      ztmp = x[j][2];
 
-    for (int jj = 0; jj < jnum; jj++) { //go find me the closest surf_type
-      k = jlist[jj];
-      k &= NEIGHMASK;
-      if (type[k] == surf_type)
-      {
+      jlist = firstneigh[j];
+      jnum = numneigh[j];
+      rsq1 = INT_MAX;
 
-        delx = xtmp - x[k][0];
-        dely = ytmp - x[k][1];
-        delz = ztmp - x[k][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq < rsq1) rsq1 = rsq;
+      // go find me the closest surf_type
+      for (int jj = 0; jj < jnum; jj++) { 
+        k = jlist[jj];
+        k &= NEIGHMASK;
+        if (type[k] == surf_type)
+        {
+          delx = xtmp - x[k][0];
+          dely = ytmp - x[k][1];
+          delz = ztmp - x[k][2];
+          rsq = delx*delx + dely*dely + delz*delz;
+          if (rsq < rsq1) rsq1 = rsq;
+        }
       }
-    }
 
     rsq1 = sqrt(rsq1);
     kvel = exp(-rsq1)*kfreact;
 
+      if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
+              type[j] = product_type;
+              success += 1;
+      }
+    }
 
-    if (random_unequal->uniform() <
-        1-exp(-kvel*tstep)) {
-            type[j] = product_type;
-            success += 1;
-            printf("freaction: x=%f  y=%f  z=%f\n", x[j][0],x[j][1],x[j][2]);
+    // Comunicate to the other processors and remake lists if needed
+    int success_all = 0;
+    MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
+    if (success_all) {
+        update_gas_atoms_list();
+        update_reactive_atoms_list();
+        update_product_atoms_list();
+        nfreaction_successes += 1;
+
+        atom->nghost = 0;
+        comm->borders();
+        comm->exchange();
     }
   }
-  // Comunicate to the other processors and remake lists if needed
-  int success_all = 0;
-  MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
-  if (success_all) {
-      update_gas_atoms_list();
-      update_reactive_atoms_list();
-      update_product_atoms_list();
-      nfreaction_successes += 1;
-
-      atom->nghost = 0;
-      comm->borders();
-      comm->exchange();
-  }
 }
-}
- /* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
    update the list of gas atoms. Esteban: Now just initializes the memory
@@ -415,19 +404,17 @@ void Fixkmc::update_reactive_atoms_list()
 
   nreact_local = 0;
 
-    int *type = atom->type;
+  int *type = atom->type;
 
   if (regionflag) {
       for (int i = 0; i < nlocal; i++) {
-          if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
+        if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
           if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
             local_react_list[nreact_local] = i;
             nreact_local++;
           }
         }
       }
-
-
   } else {
     for (int i = 0; i < nlocal; i++) {
         if ((mask[i] & groupbit) && (type[i] == reactive_type)) {
@@ -455,19 +442,17 @@ void Fixkmc::update_product_atoms_list()
 
   nprod_local = 0;
 
-    int *type = atom->type;
+  int *type = atom->type;
 
   if (regionflag) {
       for (int i = 0; i < nlocal; i++) {
-          if ((mask[i] & groupbit) && (type[i] == product_type)) {
+        if ((mask[i] & groupbit) && (type[i] == product_type)) {
           if (iregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
             local_prod_list[nprod_local] = i;
             nprod_local++;
           }
         }
       }
-
-
   } else {
     for (int i = 0; i < nlocal; i++) {
         if ((mask[i] & groupbit) && (type[i] == product_type)) {
