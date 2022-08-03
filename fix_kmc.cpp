@@ -22,6 +22,7 @@
 #include "fix.h"
 #include "comm.h"
 #include "compute.h"
+#include "force.h"
 #include "group.h"
 #include "domain.h"
 #include "region.h"
@@ -50,7 +51,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   list(nullptr)
 {
-  if (narg < 11) 
+  if (narg < 11)
     error->all(FLERR,"Incorrect number of fix kmc arguments {}", narg);
 
   if (atom->molecular == 2)
@@ -75,9 +76,9 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   seed = utils::inumeric(FLERR,arg[9],false,lmp);
   nevery = utils::inumeric(FLERR,arg[10],false,lmp);
 
-  if (seed <= 0) 
+  if (seed <= 0)
     error->all(FLERR,"Illegal fix kmc seed {}", seed);
-  if (reservoir_temperature < 0.0) 
+  if (reservoir_temperature < 0.0)
     error->all(FLERR,"Illegal fix kmc reservoir temperature {}", reservoir_temperature);
 
   regionflag = 0;
@@ -139,7 +140,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
 
 void Fixkmc::options(int narg, char **arg)
 {
-  if (narg < 0) 
+  if (narg < 0)
     utils::missing_cmd_args(FLERR, "fix kmc", error);
 
   // defaults
@@ -153,7 +154,7 @@ void Fixkmc::options(int narg, char **arg)
   if (strcmp(arg[iarg],"mol") == 0) {
       error->all(FLERR,"Fix kmc does not work with molecules (yet)!");
     } else if (strcmp(arg[iarg],"region") == 0) {
-      if (iarg+2 > narg) 
+      if (iarg+2 > narg)
         utils::missing_cmd_args(FLERR, "fix kmc", error);
       iregion = domain->get_region_by_id(arg[iarg+1]);
       if (iregion == nullptr)
@@ -286,9 +287,7 @@ void Fixkmc::pre_exchange()
 
 void Fixkmc::attempt_atomic_freaction(int nreact)
 {
-  nfreaction_attempts += 1.0;
-  int success = 0;
-
+  int success;
   int *ilist,*jlist,*numneigh,**firstneigh;
   double xtmp,ytmp,ztmp,delx,dely,delz, kvel;
   double rsq,rsq1;
@@ -305,13 +304,15 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
 
   for(int i; i<nreact; i++)
   {
+    nfreaction_attempts += 1.0;
+    success = 0;
     // is this atom in this processor
-    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){ 
+    if ((i >= nreact_before) && (i < nreact_before + nreact_local)){
 
       int ilocal= i - nreact_before;
 
       // j is the actual id of the atom
-      int j = local_react_list[ilocal];  
+      int j = local_react_list[ilocal];
 
       xtmp = x[j][0];
       ytmp = x[j][1];
@@ -322,7 +323,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
       rsq1 = INT_MAX;
 
       // go find me the closest surf_type
-      for (int jj = 0; jj < jnum; jj++) { 
+      for (int jj = 0; jj < jnum; jj++) {
         k = jlist[jj];
         k &= NEIGHMASK;
         if (type[k] == surf_type)
@@ -335,12 +336,13 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
         }
       }
 
-    rsq1 = sqrt(rsq1);
-    kvel = exp(-rsq1)*kfreact;
+      kvel = exp(-sqrt(rsq1))*kfreact;
 
       if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
-              type[j] = product_type;
-              success += 1;
+        type[j] = product_type;
+        success += 1;
+        printf("freaction:  x: %6.4f y: %6.4f z: %6.4f\n",
+          xtmp, ytmp, ztmp);
       }
     }
 
