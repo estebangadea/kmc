@@ -21,7 +21,7 @@ variable e_type equal 3
 #set your pre-exponential factor (Smalley *et. al.* 1995)
 variable pexp equal 6e-7
 
-#set your electric potential in volts
+#set your electric potential in correct units
 variable pot equal 0.1
 
 #how often will the kMC steps be applied
@@ -53,3 +53,21 @@ For higher potentials there might be necessary to decrease the timestep
 
 ## Region optional
 The reaction can be restricted to a declared region using the region ${regionID} optional argument in the fix
+
+## Potential units
+The units of the electrode potential have to be compatible with the units used by LAMMPS (energy/charge).
+
+```python
+#potential in volts - metal units - si units
+variable volts_pot equal 0.2
+
+#real units
+variable potential equal ${volts_pot}*6.022e23/2.611e22
+
+#cgs units
+variable potential equal ${volts_pot}*1e-7/3.356e-10
+
+#electron units
+variable potential equal ${volts_pot}*27.2114
+
+```
