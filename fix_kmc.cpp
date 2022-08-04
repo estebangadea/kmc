@@ -302,7 +302,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
 
-  for(int i; i<nreact; i++)
+  for(int i=0; i<nreact; i++)
   {
     nfreaction_attempts += 1.0;
     success = 0;
