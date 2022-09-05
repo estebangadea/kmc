@@ -54,6 +54,12 @@ For higher potentials there might be necessary to decrease the timestep
 ## Region optional
 The reaction can be restricted to a declared region using the region ${regionID} optional argument in the fix
 
+## Density optional
+This keyword controls the density of product particles in a region. When the density is greater than ${dmin} every forward reaction produces the back reaction in the region ${regionID}. If the density is greater than ${dmax} every event produces two back reactions.
+```python
+fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nevery} density ${regionID} ${dmin} ${dmax}
+```
+
 ## Potential units
 The units of the electrode potential have to be compatible with the units used by LAMMPS (energy/charge).
 

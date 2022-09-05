@@ -38,8 +38,10 @@ class Fixkmc : public Fix {
   void attempt_atomic_freaction(int);
 
   void update_gas_atoms_list();
+  void update_gap_atoms_list();
   void update_reactive_atoms_list();
   void update_product_atoms_list();
+  void swap_random_gap_atom();
 
   double compute_vector(int);
   double memory_usage();
@@ -54,14 +56,20 @@ class Fixkmc : public Fix {
   int reactive_type, product_type, surf_type;
   int nreactions;
   int ngas;                         // # of gas atoms on all procs
+  int ngap;
   int nreact, nprod;
   int ngas_local;                   // # of gas atoms on this proc
+  int ngap_local;
   int ngas_before;                  // # of gas atoms on procs < this proc
   int nreact_before, nprod_before;
+  int ngap_before;
   int mode;                         // ATOM or MOLECULE
   int regionflag;                   // 0 = anywhere in box, 1 = specific region
+  int densityflag;
   class Region *iregion;            // gcmc region
+  class Region *jregion;
   char *idregion;                   // gcmc region id
+  char *jidregion;
   int natoms_per_molecule;          // number of atoms in each gas molecule
   int groupbitall;                  // group bitmask for inserted atoms
 
@@ -77,12 +85,14 @@ class Fixkmc : public Fix {
   int *local_gas_list;
   int *local_react_list;
   int *local_prod_list;
+  int *local_gap_list;
   imageint imagezero;
   int imol,nmol;
 
    // KMC Specific
-  double center[3]; 
+  double center[3];
   double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;
+  double densvol, maxdens, mindens;
   int nreact_local, nprod_local;
 
   class NeighList *list;

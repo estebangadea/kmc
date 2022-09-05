@@ -115,6 +115,28 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
       error->all(FLERR,"Fix kmc region extends outside simulation box");
 
   }
+  if (densityflag){
+    if (iregion->bboxflag == 0)
+      error->all(FLERR,"Fix kmc density does not support a bounding box");
+    if (iregion->dynamic_check())
+      error->all(FLERR,"Fix kmc density cannot be dynamic");
+
+    region_xlo = jregion->extent_xlo;
+    region_xhi = jregion->extent_xhi;
+    region_ylo = jregion->extent_ylo;
+    region_yhi = jregion->extent_yhi;
+    region_zlo = jregion->extent_zlo;
+    region_zhi = jregion->extent_zhi;
+
+    if (region_xlo < domain->boxlo[0] || region_xhi > domain->boxhi[0] ||
+        region_ylo < domain->boxlo[1] || region_yhi > domain->boxhi[1] ||
+        region_zlo < domain->boxlo[2] || region_zhi > domain->boxhi[2])
+      error->all(FLERR,"Fix kmc region extends outside simulation box");
+
+    densvol = (region_xhi-region_xlo)*
+              (region_yhi-region_ylo)*
+              (region_zhi-region_zlo);
+  }
 
   if (mode == ATOM) natoms_per_molecule = 1;
   else error->all(FLERR,"Fix kmc region does not support molecules");
@@ -132,6 +154,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   local_gas_list = NULL;
   local_react_list = NULL;
   local_prod_list = NULL;
+  local_gap_list = NULL;
 }
 
 /* ----------------------------------------------------------------------
@@ -147,7 +170,9 @@ void Fixkmc::options(int narg, char **arg)
 
   mode = ATOM;
   regionflag = 0;
+  densityflag = 0;
   iregion = nullptr;
+  jregion = nullptr;
 
   int iarg = 0;
   while (iarg < narg) {
@@ -164,6 +189,19 @@ void Fixkmc::options(int narg, char **arg)
       strcpy(idregion,arg[iarg+1]);
       regionflag = 1;
       iarg += 2;
+    } else if (strcmp(arg[iarg],"density") == 0) {
+      if (iarg+4 > narg)
+        utils::missing_cmd_args(FLERR, "fix kmc", error);
+      jregion = domain->get_region_by_id(arg[iarg+1]);
+      mindens = utils::numeric(FLERR,arg[iarg+2],false,lmp);
+      maxdens = utils::numeric(FLERR,arg[iarg+3],false,lmp);
+      if (jregion == nullptr)
+        error->all(FLERR,"Region ID for fix kmc does not exist");
+      int n = strlen(arg[iarg+1]) + 1;
+      jidregion = new char[n];
+      strcpy(jidregion,arg[iarg+1]);
+      densityflag = 1;
+      iarg += 4;
     } else error->all(FLERR,"Illegal fix kmc command {}", arg[iarg]);
   }
 }
@@ -179,6 +217,7 @@ Fixkmc::~Fixkmc()
   memory->destroy(local_gas_list);
   memory->destroy(local_react_list);
   memory->destroy(local_prod_list);
+  memory->destroy(local_gap_list);
 
 }
 
@@ -278,6 +317,7 @@ void Fixkmc::pre_exchange()
   update_gas_atoms_list();
   update_product_atoms_list();
   update_reactive_atoms_list();
+  update_gap_atoms_list();
 
   attempt_atomic_freaction(nreact);
 
@@ -350,9 +390,18 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
     int success_all = 0;
     MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
     if (success_all) {
+      if (densityflag){
+        if (ngap/densvol > mindens){
+          swap_random_gap_atom();
+        }
+        if (ngap/densvol > maxdens){
+          swap_random_gap_atom();
+        }
+      }
         update_gas_atoms_list();
         update_reactive_atoms_list();
         update_product_atoms_list();
+        update_gap_atoms_list();
         nfreaction_successes += 1;
 
         atom->nghost = 0;
@@ -387,6 +436,12 @@ void Fixkmc::update_gas_atoms_list()
     gcmc_nmax = atom->nmax;
     local_prod_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
      "kmc:local_prod_list");
+
+    memory->sfree(local_gap_list);
+    gcmc_nmax = atom->nmax;
+    local_gap_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
+     "kmc:local_gap_list");
+
   }
 
   ngas_local = 0;
@@ -467,6 +522,48 @@ void Fixkmc::update_product_atoms_list()
   MPI_Allreduce(&nprod_local,&nprod,1,MPI_INT,MPI_SUM,world);
   MPI_Scan(&nprod_local,&nprod_before,1,MPI_INT,MPI_SUM,world);
   nprod_before -= nprod_local;
+}
+
+void Fixkmc::update_gap_atoms_list()
+{
+  if (densityflag){
+  int nlocal = atom->nlocal;
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  double **x = atom->x;
+
+  ngap_local = 0;
+
+  int *type = atom->type;
+
+
+  for (int i = 0; i < nlocal; i++) {
+    if ((mask[i] & groupbit) && (type[i] == product_type)) {
+      if (jregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
+        local_prod_list[ngap_local] = i;
+        ngap_local++;
+      }
+    }
+  }
+
+
+  MPI_Allreduce(&ngap_local,&ngap,1,MPI_INT,MPI_SUM,world);
+  MPI_Scan(&ngap_local,&ngap_before,1,MPI_INT,MPI_SUM,world);
+  ngap_before -= ngap_local;
+}
+}
+
+void Fixkmc::swap_random_gap_atom()
+{
+  int *type = atom->type;
+  int i = -1;
+  int iwhichglobal = static_cast<int> (ngap*random_equal->uniform());
+  if ((iwhichglobal >= ngap_before) &&
+      (iwhichglobal < ngap_before + ngap_local)) {
+    int iwhichlocal = iwhichglobal - ngap_before;
+    i = local_gap_list[iwhichlocal];
+    type[i] = reactive_type;
+  }
 }
 
 /* ----------------------------------------------------------------------
