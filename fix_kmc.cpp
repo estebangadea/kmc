@@ -393,6 +393,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
       if (densityflag){
         if ((float)ngap / densvol > mindens){
           swap_random_gap_atom();
+          printf("swap by %6.4f\n", (float)ngap / densvol);
         }
         if ((float)ngap / densvol > maxdens){
           swap_random_gap_atom();
@@ -563,6 +564,7 @@ void Fixkmc::swap_random_gap_atom()
     int iwhichlocal = iwhichglobal - ngap_before;
     i = local_gap_list[iwhichlocal];
     type[i] = reactive_type;
+    printf("here! %i\n", i);
   }
 }
 
