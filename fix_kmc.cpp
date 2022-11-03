@@ -391,7 +391,6 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
     MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
     if (success_all) {
       if (densityflag){
-        printf("swap by %6.4f\n", (float)ngap / densvol);
         if ((float)ngap / densvol > mindens){
           swap_random_gap_atom();
         }
@@ -564,7 +563,6 @@ void Fixkmc::swap_random_gap_atom()
     int iwhichlocal = iwhichglobal - ngap_before;
     i = local_gap_list[iwhichlocal];
     type[i] = reactive_type;
-    printf("here! %i\n", i);
   }
 }
 
