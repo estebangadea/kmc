@@ -541,7 +541,7 @@ void Fixkmc::update_gap_atoms_list()
   for (int i = 0; i < nlocal; i++) {
     if ((mask[i] & groupbit) && (type[i] == product_type)) {
       if (jregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
-        local_prod_list[ngap_local] = i;
+        local_gap_list[ngap_local] = i;
         ngap_local++;
       }
     }
