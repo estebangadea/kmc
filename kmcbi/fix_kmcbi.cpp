@@ -116,28 +116,6 @@ Fixkmcbi::Fixkmcbi(LAMMPS *lmp, int narg, char **arg) :
       error->all(FLERR,"Fix kmcbi region extends outside simulation box");
 
   }
-  if (densityflag){
-    if (iregion->bboxflag == 0)
-      error->all(FLERR,"Fix kmcbi density does not support a bounding box");
-    if (iregion->dynamic_check())
-      error->all(FLERR,"Fix kmcbi density cannot be dynamic");
-
-    region_xlo = jregion->extent_xlo;
-    region_xhi = jregion->extent_xhi;
-    region_ylo = jregion->extent_ylo;
-    region_yhi = jregion->extent_yhi;
-    region_zlo = jregion->extent_zlo;
-    region_zhi = jregion->extent_zhi;
-
-    if (region_xlo < domain->boxlo[0] || region_xhi > domain->boxhi[0] ||
-        region_ylo < domain->boxlo[1] || region_yhi > domain->boxhi[1] ||
-        region_zlo < domain->boxlo[2] || region_zhi > domain->boxhi[2])
-      error->all(FLERR,"Fix kmcbi region extends outside simulation box");
-
-    densvol = (region_xhi-region_xlo)*
-              (region_yhi-region_ylo)*
-              (region_zhi-region_zlo);
-  }
 
   if (mode == ATOM) natoms_per_molecule = 1;
   else error->all(FLERR,"Fix kmcbi region does not support molecules");
@@ -157,7 +135,6 @@ Fixkmcbi::Fixkmcbi(LAMMPS *lmp, int narg, char **arg) :
   local_reactb_list = NULL;
   local_prodc_list = NULL;
   local_prodd_list = NULL;
-  local_gap_list = NULL;
 }
 
 /* ----------------------------------------------------------------------
@@ -173,7 +150,6 @@ void Fixkmcbi::options(int narg, char **arg)
 
   mode = ATOM;
   regionflag = 0;
-  densityflag = 0;
   iregion = nullptr;
   jregion = nullptr;
 
@@ -192,19 +168,6 @@ void Fixkmcbi::options(int narg, char **arg)
       strcpy(idregion,arg[iarg+1]);
       regionflag = 1;
       iarg += 2;
-    } else if (strcmp(arg[iarg],"density") == 0) {
-      if (iarg+4 > narg)
-        utils::missing_cmd_args(FLERR, "fix kmcbi", error);
-      jregion = domain->get_region_by_id(arg[iarg+1]);
-      mindens = utils::numeric(FLERR,arg[iarg+2],false,lmp);
-      maxdens = utils::numeric(FLERR,arg[iarg+3],false,lmp);
-      if (jregion == nullptr)
-        error->all(FLERR,"Region ID for fix kmcbi does not exist");
-      int n = strlen(arg[iarg+1]) + 1;
-      jidregion = new char[n];
-      strcpy(jidregion,arg[iarg+1]);
-      densityflag = 1;
-      iarg += 4;
     } else error->all(FLERR,"Illegal fix kmcbi command {}", arg[iarg]);
   }
 }
@@ -222,7 +185,6 @@ Fixkmcbi::~Fixkmcbi()
   memory->destroy(local_reactb_list);
   memory->destroy(local_prodc_list);
   memory->destroy(local_prodd_list);
-  memory->destroy(local_gap_list);
 
 }
 
@@ -324,12 +286,20 @@ void Fixkmcbi::pre_exchange()
   comm->borders();
 
   if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
+
+  int mapflag = 0;
+  if (atom->map_style == Atom::MAP_NONE) {
+    mapflag = 1;
+    atom->nghost = 0;
+    atom->map_init();
+    atom->map_set();
+  }
+
   update_gas_atoms_list();
   update_productc_atoms_list();
   update_productd_atoms_list();
   update_reactivea_atoms_list();
   update_reactiveb_atoms_list();
-  update_gap_atoms_list();
 
   attempt_atomic_freaction(nreacta);
 
@@ -344,21 +314,24 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
   double xtmp,ytmp,ztmp,delx,dely,delz, kvel;
   double rsq,rsq1;
 
+  int nlocal = atom->nlocal;
   double **x = atom->x;
   int *type = atom->type;
   int tstep = update->dt;
-  int inum, jnum, k;
+  int inum, jnum, k, kshift;
 
   inum = list->inum;
   ilist = list->ilist;
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
 
+  
+
   for(int i=0; i<nreacta; i++)
   {
     nfreaction_attempts += 1.0;
     success = 0;
-    k = 0;
+    kshift = 0;
     // is this atom in this processor
     if ((i >= nreacta_before) && (i < nreacta_before + nreacta_local)){
 
@@ -375,11 +348,14 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
       jnum = numneigh[j];
       rsq1 = INT_MAX;
 
+      if (atom->map_style == Atom::MAP_NONE)
+    error->all(FLERR,"Fix restrain requires an atom map, see atom_modify");
+
       // go find me all the reactB neighbors
       for (int jj = 0; jj < jnum; jj++) {
         k = jlist[jj];
         k &= NEIGHMASK;
-        if (type[k] == reactiveb_type)
+        if (type[atom->map(atom->tag[k])] == reactiveb_type)
         {
           delx = xtmp - x[k][0];
           dely = ytmp - x[k][1];
@@ -387,68 +363,61 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
           rsq = delx*delx + dely*dely + delz*delz;
           //if (rsq < rsq1) rsq1 = rsq;
           kvel = exp(-sqrt(rsq))*kfreact;
+          //printf("freaction:  k: %i  tag: %i map: %i \n",
+          //    type[k], type[atom->tag[k]], type[atom->map(atom->tag[k])]);
           if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
             type[j] = productc_type;
             //shift_type(k);
-            type[k] = productd_type;
+            kshift = atom->map(atom->tag[k]);
+            printf("type = %i\n",type[kshift]);
+            type[kshift] = productd_type;
             success += 1;
-            printf("freaction:  r: %6.4f \n",
-              sqrt(rsq));
+            printf("freaction r = %6.4f \n", sqrt(rsq));
           }
-
         }
       }
       if (success > 1) printf("WARNING: multiple reactions accepted -> Nsuccess = %i\n Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
         success, nreacta, nreactb, nprodc, nprodd);
-
-      //kvel = exp(-sqrt(rsq1))*kfreact;
-
-      //if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
-      //  type[j] = product_type;
-      //  success += 1;
-      //  printf("freaction:  x: %6.4f y: %6.4f z: %6.4f\n",
-      //    xtmp, ytmp, ztmp);
-      //}
     }
 
     // Comunicate to the other processors and remake lists if needed
     int success_all = 0;
     MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
-    //int k_all = 0;
-    //MPI_Allreduce(&k,&k_all,1,MPI_INT,MPI_MAX,world);
+    int k_all = 0;
+    MPI_Allreduce(&kshift,&k_all,1,MPI_INT,MPI_MAX,world);
     if (success_all) {
-      //shift_type(k_all);
-      if (densityflag){
-        if ((float)ngap / densvol > mindens){
-          swap_random_gap_atom();
-        }
-        if ((float)ngap / densvol > maxdens){
-          swap_random_gap_atom();
-        }
-      }
+        printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
+         nreacta, nreactb, nprodc, nprodd);
+        //shiftb_type(k_all);
         update_gas_atoms_list();
         update_reactivea_atoms_list();
         update_reactiveb_atoms_list();
         update_productc_atoms_list();
         update_productd_atoms_list();
-        update_gap_atoms_list();
         nfreaction_successes += 1;
-        printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
-         nreacta, nreactb, nprodc, nprodd);
-
+        printf("kshift = %i\n", k_all);
         atom->nghost = 0;
         comm->borders();
         comm->exchange();
+        atom->map_init();
+        atom->map_set();
     }
   }
 }
 
 
-void Fixkmcbi::shift_type(int k)
+void Fixkmcbi::shifta_type(int k)
 {
   if ((k >= nreacta_before) && (k < nreacta_before + nreacta_local)){
     int *type = atom->type;
     type[k] = productd_type;
+  }
+}
+void Fixkmcbi::shiftb_type(int k)
+{
+  if ((k >= nreactb_before) && (k < nreactb_before + nreactb_local)){
+    int *type = atom->type;
+    type[k] = productc_type;
   }
 }
 
@@ -485,12 +454,6 @@ void Fixkmcbi::update_gas_atoms_list()
     gcmc_nmax = atom->nmax;
     local_prodd_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
      "kmcbi:local_prodd_list");
-
-    memory->sfree(local_gap_list);
-    gcmc_nmax = atom->nmax;
-    local_gap_list = (int *) memory->smalloc(gcmc_nmax*sizeof(int),
-     "kmcbi:local_gap_list");
-
   }
 
   ngas_local = 0;
@@ -640,48 +603,6 @@ void Fixkmcbi::update_productd_atoms_list()
   MPI_Allreduce(&nprodd_local,&nprodd,1,MPI_INT,MPI_SUM,world);
   MPI_Scan(&nprodd_local,&nprodd_before,1,MPI_INT,MPI_SUM,world);
   nprodd_before -= nprodd_local;
-}
-
-void Fixkmcbi::update_gap_atoms_list()
-{
-  if (densityflag){
-  int nlocal = atom->nlocal;
-  int *mask = atom->mask;
-  tagint *molecule = atom->molecule;
-  double **x = atom->x;
-
-  ngap_local = 0;
-
-  int *type = atom->type;
-
-
-  for (int i = 0; i < nlocal; i++) {
-    if ((mask[i] & groupbit) && (type[i] == productc_type)) {
-      if (jregion->match(x[i][0],x[i][1],x[i][2]) == 1) {
-        local_gap_list[ngap_local] = i;
-        ngap_local++;
-      }
-    }
-  }
-
-
-  MPI_Allreduce(&ngap_local,&ngap,1,MPI_INT,MPI_SUM,world);
-  MPI_Scan(&ngap_local,&ngap_before,1,MPI_INT,MPI_SUM,world);
-  ngap_before -= ngap_local;
-}
-}
-
-void Fixkmcbi::swap_random_gap_atom()
-{
-  int *type = atom->type;
-  int i = -1;
-  int iwhichglobal = static_cast<int> (ngap*random_equal->uniform());
-  if ((iwhichglobal >= ngap_before) &&
-      (iwhichglobal < ngap_before + ngap_local)) {
-    int iwhichlocal = iwhichglobal - ngap_before;
-    i = local_gap_list[iwhichlocal];
-    type[i] = reactivea_type;
-  }
 }
 
 /* ----------------------------------------------------------------------

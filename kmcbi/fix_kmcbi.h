@@ -38,13 +38,12 @@ class Fixkmcbi : public Fix {
   void attempt_atomic_freaction(int);
 
   void update_gas_atoms_list();
-  void update_gap_atoms_list();
   void update_reactivea_atoms_list();
   void update_reactiveb_atoms_list();
   void update_productc_atoms_list();
   void update_productd_atoms_list();
-  void swap_random_gap_atom();
-  void shift_type(int k);
+  void shifta_type(int k);
+  void shiftb_type(int k);
 
   double compute_vector(int);
   double memory_usage();
@@ -59,16 +58,13 @@ class Fixkmcbi : public Fix {
   int reactivea_type, reactiveb_type, productc_type, productd_type;
   int nreactions;
   int ngas;                         // # of gas atoms on all procs
-  int ngap;
   int nreacta, nreactb, nprodc, nprodd;
   int ngas_local;                   // # of gas atoms on this proc
-  int ngap_local;
   int ngas_before;                  // # of gas atoms on procs < this proc
   int nreacta_before, nreactb_before, nprodc_before, nprodd_before;
   int ngap_before;
   int mode;                         // ATOM or MOLECULE
   int regionflag;                   // 0 = anywhere in box, 1 = specific region
-  int densityflag;
   class Region *iregion;            // gcmc region
   class Region *jregion;
   char *idregion;                   // gcmc region id
@@ -90,7 +86,6 @@ class Fixkmcbi : public Fix {
   int *local_reactb_list;
   int *local_prodc_list;
   int *local_prodd_list;
-  int *local_gap_list;
   imageint imagezero;
   int imol,nmol;
 
