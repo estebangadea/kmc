@@ -284,8 +284,12 @@ void Fixkmcbi::pre_exchange()
   comm->exchange();
   atom->nghost = 0;
   comm->borders();
+  
 
   if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
+
+  if (modify->n_pre_neighbor) modify->pre_neighbor();
+  neighbor->build(1);
 
   int mapflag = 0;
   if (atom->map_style == Atom::MAP_NONE) {
@@ -312,19 +316,23 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
   int success;
   int *ilist,*jlist,*numneigh,**firstneigh;
   double xtmp,ytmp,ztmp,delx,dely,delz, kvel;
-  double rsq,rsq1;
+  double rsq,rsq1, xx, yy, zz, xt, yt, zt;
+  atom->map_init();
+  atom->map_set();
+  domain->pbc();
 
   int nlocal = atom->nlocal;
+  //printf("nlocal: %i nfirst: %i\n", nlocal, nfirst);
   double **x = atom->x;
   int *type = atom->type;
   int tstep = update->dt;
-  int inum, jnum, k, kshift;
+  int inum, jnum, k, kshift, kk;
 
   inum = list->inum;
   ilist = list->ilist;
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
-
+  
   
 
   for(int i=0; i<nreacta; i++)
@@ -332,9 +340,13 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
     nfreaction_attempts += 1.0;
     success = 0;
     kshift = 0;
+    xx = 0.0;
+    yy = 0.0;
+    zz = 0.0;
     // is this atom in this processor
     if ((i >= nreacta_before) && (i < nreacta_before + nreacta_local)){
 
+      
       int ilocal= i - nreacta_before;
 
       // j is the actual id of the atom
@@ -348,14 +360,15 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
       jnum = numneigh[j];
       rsq1 = INT_MAX;
 
-      if (atom->map_style == Atom::MAP_NONE)
-    error->all(FLERR,"Fix restrain requires an atom map, see atom_modify");
+    //  if (atom->map_style == Atom::MAP_NONE)
+    //error->all(FLERR,"Fix restrain requires an atom map, see atom_modify");
 
       // go find me all the reactB neighbors
       for (int jj = 0; jj < jnum; jj++) {
         k = jlist[jj];
         k &= NEIGHMASK;
-        if (type[atom->map(atom->tag[k])] == reactiveb_type)
+        kk = atom->map(atom->tag[k]);
+        if (type[k] == reactiveb_type) //map(tag(k)) returns the global index from the k in the nighbor list
         {
           delx = xtmp - x[k][0];
           dely = ytmp - x[k][1];
@@ -363,16 +376,24 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
           rsq = delx*delx + dely*dely + delz*delz;
           //if (rsq < rsq1) rsq1 = rsq;
           kvel = exp(-sqrt(rsq))*kfreact;
-          //printf("freaction:  k: %i  tag: %i map: %i \n",
-          //    type[k], type[atom->tag[k]], type[atom->map(atom->tag[k])]);
+          //printf("freaction:  k: %i  kk = %i\n",
+          //    k, kk);
           if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
+            printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
+              nreacta, nreactb, nprodc, nprodd);
+            //printf("shift_a = %i, type: %i, typek: %i, typekk: %i \n", j, type[j], type[k], type[kk]);
             type[j] = productc_type;
+            //printf("bposta: %4.3f, %4.3f, %4.3f \n", x[k][0], x[k][1], x[k][2]);
+            
             //shift_type(k);
-            kshift = atom->map(atom->tag[k]);
-            printf("type = %i\n",type[kshift]);
-            type[kshift] = productd_type;
+            xx = x[k][0];
+            yy = x[k][1];
+            zz = x[k][2];
+            kshift = kk;
+            //type[kshift] = productd_type;
+            //type[k] = productd_type;
             success += 1;
-            printf("freaction r = %6.4f \n", sqrt(rsq));
+            //printf("freaction r = %6.4f \n", sqrt(rsq));
           }
         }
       }
@@ -385,22 +406,37 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
     MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
     int k_all = 0;
     MPI_Allreduce(&kshift,&k_all,1,MPI_INT,MPI_MAX,world);
+    xt = 0.0;
+    yt = 0.0;
+    zt = 0.0;
+    MPI_Allreduce(&xx,&xt,1,MPI_INT,MPI_MAX,world);
+    MPI_Allreduce(&yy,&yt,1,MPI_INT,MPI_MAX,world);
+    MPI_Allreduce(&zz,&zt,1,MPI_INT,MPI_MAX,world);
     if (success_all) {
-        printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
-         nreacta, nreactb, nprodc, nprodd);
-        //shiftb_type(k_all);
+        //printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
+        // nreacta, nreactb, nprodc, nprodd)
+        update_gas_atoms_list();
+        update_reactivea_atoms_list();
+        update_reactiveb_atoms_list();
+        update_productc_atoms_list();
+        update_productd_atoms_list();
+        shiftb_type(k_all, xt, yt, zt);
+        //printf("kshift = %i\n", k_all);
+        //printf("shift_b = %i, typekshift: %i typek: %i\n", k_all, type[k_all], type[k]);
+        //type[k_all] = productd_type;
+
+        domain->pbc();
+        comm->exchange();
+        atom->nghost = 0;
+        comm->borders();
+        //atom->map_init();
+        //atom->map_set();
         update_gas_atoms_list();
         update_reactivea_atoms_list();
         update_reactiveb_atoms_list();
         update_productc_atoms_list();
         update_productd_atoms_list();
         nfreaction_successes += 1;
-        printf("kshift = %i\n", k_all);
-        atom->nghost = 0;
-        comm->borders();
-        comm->exchange();
-        atom->map_init();
-        atom->map_set();
     }
   }
 }
@@ -410,14 +446,37 @@ void Fixkmcbi::shifta_type(int k)
 {
   if ((k >= nreacta_before) && (k < nreacta_before + nreacta_local)){
     int *type = atom->type;
-    type[k] = productd_type;
+    printf("kshift: %i type: %i \n", k, type[k]);
+    type[k] = productc_type;
   }
 }
-void Fixkmcbi::shiftb_type(int k)
+void Fixkmcbi::shiftb_type(int k, double xt, double yt, double zt)
 {
-  if ((k >= nreactb_before) && (k < nreactb_before + nreactb_local)){
-    int *type = atom->type;
-    type[k] = productc_type;
+  double **x = atom->x;
+  double x2temp[3], xtemp[3];
+
+  xtemp[0] = xt;
+  xtemp[1] = yt;
+  xtemp[2] = zt;
+  domain->remap(xtemp);
+  
+  for(int i=0; i<nreactb; i++){
+    if ((i >= nreactb_before) && (i < nreactb_before + nreactb_local)){
+
+      int ilocal= i - nreactb_before;
+      int j = local_reactb_list[ilocal];
+
+      //if (atom->map(atom->tag[j]) == k){
+      x2temp[0] = x[j][0];
+      x2temp[1] = x[j][1];
+      x2temp[2] = x[j][2];
+      domain->remap(x2temp);
+       // printf("bshift: %4.3f, %4.3f, %4.3f comm: %i \n", x[j][0], x[j][1], x[j][2], comm->me);
+        if (pow(xtemp[0]-x2temp[0],2)+pow(xtemp[1]-x2temp[1],2)+pow(xtemp[2]-x2temp[2],2) < 0.01){
+           atom->type[j] = productd_type;
+        //}
+      }
+    }
   }
 }
 

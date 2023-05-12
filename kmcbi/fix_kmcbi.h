@@ -43,7 +43,7 @@ class Fixkmcbi : public Fix {
   void update_productc_atoms_list();
   void update_productd_atoms_list();
   void shifta_type(int k);
-  void shiftb_type(int k);
+  void shiftb_type(int k, double xt, double yt, double zt);
 
   double compute_vector(int);
   double memory_usage();
