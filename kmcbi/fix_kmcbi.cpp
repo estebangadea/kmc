@@ -397,21 +397,21 @@ void Fixkmcbi::attempt_atomic_freaction(int nreacta)
           }
         }
       }
-      if (success > 1) printf("WARNING: multiple reactions accepted -> Nsuccess = %i\n Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
-        success, nreacta, nreactb, nprodc, nprodd);
+      
     }
 
     // Comunicate to the other processors and remake lists if needed
     int success_all = 0;
     MPI_Allreduce(&success,&success_all,1,MPI_INT,MPI_MAX,world);
+    if (success_all > 1) error->all(FLERR,"Multiple reactions accepted in one step");
     int k_all = 0;
     MPI_Allreduce(&kshift,&k_all,1,MPI_INT,MPI_MAX,world);
     xt = 0.0;
     yt = 0.0;
     zt = 0.0;
-    MPI_Allreduce(&xx,&xt,1,MPI_INT,MPI_MAX,world);
-    MPI_Allreduce(&yy,&yt,1,MPI_INT,MPI_MAX,world);
-    MPI_Allreduce(&zz,&zt,1,MPI_INT,MPI_MAX,world);
+    MPI_Allreduce(&xx,&xt,1,MPI_DOUBLE,MPI_SUM,world);
+    MPI_Allreduce(&yy,&yt,1,MPI_DOUBLE,MPI_SUM,world);
+    MPI_Allreduce(&zz,&zt,1,MPI_DOUBLE,MPI_SUM,world);
     if (success_all) {
         //printf("Nreacta = %i\n Nreactb = %i\n Nprodc = %i\n Nprodd = %i\n",
         // nreacta, nreactb, nprodc, nprodd)
@@ -471,9 +471,10 @@ void Fixkmcbi::shiftb_type(int k, double xt, double yt, double zt)
       x2temp[1] = x[j][1];
       x2temp[2] = x[j][2];
       domain->remap(x2temp);
-       // printf("bshift: %4.3f, %4.3f, %4.3f comm: %i \n", x[j][0], x[j][1], x[j][2], comm->me);
+       
         if (pow(xtemp[0]-x2temp[0],2)+pow(xtemp[1]-x2temp[1],2)+pow(xtemp[2]-x2temp[2],2) < 0.01){
-           atom->type[j] = productd_type;
+          atom->type[j] = productd_type;
+          //printf("bshift: %4.3f, %4.3f, %4.3f comm: %i \n", x[j][0], x[j][1], x[j][2], comm->me);
         //}
       }
     }
