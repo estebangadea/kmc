@@ -375,14 +375,15 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
           if (rsq < rsq1) rsq1 = rsq;
         }
       }
+      if (rsq1 <= 5){
+        kvel = exp(-sqrt(rsq1))*kfreact;
 
-      kvel = exp(-sqrt(rsq1))*kfreact;
-
-      if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
-        type[j] = product_type;
-        success += 1;
-        printf("freaction:  x: %6.4f y: %6.4f z: %6.4f\n",
-          xtmp, ytmp, ztmp);
+        if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
+          type[j] = product_type;
+          success += 1;
+          printf("freaction:  x: %6.4f y: %6.4f z: %6.4f\n",
+            xtmp, ytmp, ztmp);
+        }
       }
     }
 
