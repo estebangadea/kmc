@@ -51,7 +51,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   list(nullptr)
 {
-  if (narg < 11)
+  if (narg < 12)
     error->all(FLERR,"Incorrect number of fix kmc arguments {}", narg);
 
   if (atom->molecular == 2)
@@ -75,6 +75,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   potential = utils::numeric(FLERR,arg[8],false,lmp);
   seed = utils::inumeric(FLERR,arg[9],false,lmp);
   nevery = utils::inumeric(FLERR,arg[10],false,lmp);
+  rxn_cutoff = utils::numeric(FLERR,arg[11],false,lmp); // Kaixin: added cutoff distance
 
   if (seed <= 0)
     error->all(FLERR,"Illegal fix kmc seed {}", seed);
@@ -84,7 +85,7 @@ Fixkmc::Fixkmc(LAMMPS *lmp, int narg, char **arg) :
   regionflag = 0;
 
   // read options from end of input line
-  options(narg-11,&arg[11]);
+  options(narg-12,&arg[12]);
 
   // random number generator, same for all procs
   random_equal = new RanPark(lmp,seed);
@@ -375,7 +376,7 @@ void Fixkmc::attempt_atomic_freaction(int nreact)
           if (rsq < rsq1) rsq1 = rsq;
         }
       }
-      if (rsq1 <= 5){
+      if (rsq1 <= rxn_cutoff*rxn_cutoff) {
         kvel = exp(-sqrt(rsq1))*kfreact;
 
         if (random_unequal->uniform() < 1-exp(-kvel*tstep)) {
