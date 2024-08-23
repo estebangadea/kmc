@@ -28,7 +28,7 @@ variable pot equal 0.1
 variable nevery equal 50
 
 #set the fix
-fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nevery}
+fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nevery} ${rxn_cutoff}
 
 
 ```
@@ -51,13 +51,16 @@ Here are some reference values for common potentials
 
 For higher potentials there might be necessary to decrease the timestep
 
+## Reaction cutoff usage
+The reaction cutoff is to control the distance between the reactants with electrode atom. The reference value for potentials higher than 400 mV is 5.0 Angstrom.
+
 ## Region optional
-The reaction can be restricted to a declared region using the region ${regionID} optional argument in the fix
+The reaction can be restricted to a declared region using the region ${regionID} optional argument in the fix.
 
 ## Density optional
 This keyword controls the density of product particles in a region. When the density is greater than ${dmin} every forward reaction produces the back reaction in the region ${regionID}. If the density is greater than ${dmax} every event produces two back reactions.
 ```python
-fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nevery} density ${regionID} ${dmin} ${dmax}
+fix 1 all kmc ${temp} ${r_type} ${p_type} ${e_type} ${pexp} ${pot} ${seed} ${nevery} ${rxn_cutoff} density ${regionID} ${dmin} ${dmax}
 ```
 
 ## Potential units
