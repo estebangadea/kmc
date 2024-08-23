@@ -93,6 +93,7 @@ class Fixkmc : public Fix {
   double center[3];
   double kfreact, kbreact, potential, preexp, electrode_radi, electrode_h;
   double densvol, maxdens, mindens;
+  double rxn_cutoff; // Kaixin: added cutoff distance
   int nreact_local, nprod_local;
 
   class NeighList *list;
